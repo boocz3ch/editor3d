@@ -1,0 +1,10 @@
+env = Environment()
+env.ParseConfig('wx-config --cxxflags --libs --libs gl')
+# flags += std c++ 98, Wall, pedantic, -g?
+env.Program(target = '3ed', source = Glob('*.cpp'), LIBS = env['LIBS'] +
+['GL', 'GLEW'])
+
+
+env.Append(CPPFLAGS = ['-std=c++98', '-Wall', '-g'])
+env.Append(CPPFLAGS = ['-DDEBUG'])
+

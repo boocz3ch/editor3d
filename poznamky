@@ -1,0 +1,31 @@
+- nacitani vyskovejch map (png, raw, vic?)
+- zakladni menu
+- pluginovatelny?
+- stromecky, baracky, voda
+- otaceni kamery, ...
+- stromy jako bilbordy, mozna plugin pro podporu modelu + naky nastaveni
+- generovani terenu (vyskovych map?)
+
+technologie
+- opengl 3?
+- wxwidgets na okynka
+- knihovna na nacitani obrazku
+- mingw na cross compiling
+- scons? make?
+
+
+
+k pickingu:
+another solution would be to render the terrain flat shaded to an auxilary
+buffer, with no lighting or anything, and draw the triangles (or patches, or
+objects) with a unique colour (like their index in the list). Then you read the
+color back at the pixel, and it gives you the index of the triangle. This is
+purely a hardware method, But your method is fine 
+
+otazky:
+texture blending?
+obrazek (treba prsten) kolem kurzoru tak, aby byl nalepenej na terenu
+zpusob pickingu kdyz nebude vyrenderovanej jen teren (pouzit dalsi render target
+a delat tam?)
+neco lepciho nez pri novym nacteni smazat -> znova vytvorit novy data v pameti i
+na karte?
