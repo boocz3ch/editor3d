@@ -4,6 +4,7 @@
 #define GL_GLEXT_PROTOTYPES
 #include <wx/wx.h>
 #include <GL/gl.h>
+#include "shader.h"
 
 class CMap {
 	// data
@@ -35,6 +36,8 @@ class CMap {
 	wxString m_heightmap_name;
 	wxString m_texture_name;
 	
+	CShader *m_shader;
+	bool m_use_shaders;
 public:
 	CMap();
 	~CMap();
@@ -60,6 +63,9 @@ public:
 	
 	GLuint GetWidth() { return m_width; }
 	GLuint GetHeight() { return m_height; }
+	
+	void InitShaders();
+	void UseShaders(bool b) { m_use_shaders = b; }
 };
 
 #endif

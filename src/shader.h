@@ -4,6 +4,7 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <vector>
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -15,18 +16,19 @@ struct Exception {
 };
 
 class CShader {
-	GLuint m_id;
+	std::vector<GLuint> m_ids;
 	GLuint m_program;
 	std::string m_source;
-public:
-	CShader(const string &, GLenum);
-	~CShader();
+	
 	void Load(const string &);
+public:
+	CShader();
+	~CShader();
+	void Add(const string &fname, GLenum);
+	void Link();
 	void PrintInfoLog();
-	GLuint GetID() { return m_id; }
 	GLuint GetProgram() { return m_program; }
 	void Use();
 };
-
 
 #endif

@@ -1,6 +1,9 @@
 #include "main.h"
 #include "editor.h"
 
+// TODO todle pride pryc az to nebude potreba
+using namespace std;
+
 IMPLEMENT_APP(CEditorApp)
 
 Editor::CEditor *editor;
@@ -47,26 +50,27 @@ void CCanvas::OnResize(wxSizeEvent &e)
 	// Refresh(false);
 }
 
+
 void CCanvas::OnKeyDown(wxKeyEvent &e)
 {
 	int key = e.GetKeyCode();
 	if (key == WXK_ESCAPE) {
-		// TODO
-		exit(0);
-	}
-	else if (key == WXK_LEFT) {
-		editor->MoveCameraFocus(-2, 0, 0);
-	}
-	else if (key == WXK_RIGHT) {
-		editor->MoveCameraFocus(2, 0, 0);
+		wxTheApp->GetTopWindow()->Close(true);
 	}
 	else if (key == WXK_UP) {
-		editor->MoveCameraFocus(0, 0, -2);
+		editor->MoveCamera(3.5);
 	}
 	else if (key == WXK_DOWN) {
-		editor->MoveCameraFocus(0, 0, 2);
+		editor->MoveCamera(-3.5);
+	}
+	else if (key == WXK_LEFT) {
+		editor->SlideCamera(-3.5, 0);
+	}
+	else if (key == WXK_RIGHT) {
+		editor->SlideCamera(3.5, 0);
 	}
 	Refresh(false);
+	e.Skip();
 }
 void CCanvas::OnMouseEvents(wxMouseEvent &e)
 {
@@ -78,8 +82,12 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	int wheel_rot;
 
 	if (e.Dragging()) { // dragging
-		if (e.RightIsDown()) {
-			editor->MoveCameraFocus(delta_x, 0, delta_y);
+		if (e.RightIsDown() && e.LeftIsDown()) {
+			editor->SlideCamera(delta_x, delta_y);
+			Refresh(false);
+		}
+		else if (e.RightIsDown()) {
+			editor->MoveCameraFocus(delta_x, 0, -delta_y);
 			Refresh(false);
 		}
 	}
@@ -97,6 +105,8 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	
 	last_x = x;
 	last_y = y;
+	
+	e.Skip();
 }
 
 CRootFrame::CRootFrame()
@@ -170,6 +180,19 @@ void CRootFrame::OnViewWireframe(wxCommandEvent &e)
 	editor->SetRenderState(GL_LINES);
 }
 
+void CRootFrame::OnShadersEnable(wxCommandEvent &e)
+{
+	editor->EnableShaders();
+	// DEBUG
+	cout << "shaders enabled" << endl;
+}
+void CRootFrame::OnShadersDisable(wxCommandEvent &e)
+{
+	editor->DisableShaders();
+	// DEBUG
+	cout << "shaders disabled" << endl;
+}
+
 bool CEditorApp::OnInit()
 {
 	// todle se provede jen jednou tady? vzhledem k tomu ze pointer je
@@ -184,6 +207,8 @@ bool CEditorApp::OnInit()
 	wxMenuBar *menu_bar = new wxMenuBar;
 	wxMenu *menu_file = new wxMenu;
 	wxMenu *menu_view = new wxMenu;
+	wxMenu *menu_shaders = new wxMenu;
+	wxMenu *menu_mode = new wxMenu;
 
 	// menu file 
 	menu_file->Append(ID_MF_New, _T("New"));
@@ -201,25 +226,24 @@ bool CEditorApp::OnInit()
 	 * menu_view->Append(ID_M_, _T(""));
 	 * menu_view->Append(ID_M_, _T(""));
      */
+	
+	// menu shaders
+	menu_shaders->AppendRadioItem(ID_MS_Enable, _T("Enable"));
+	menu_shaders->AppendRadioItem(ID_MS_Disable, _T("Disable"));
+	menu_shaders->Check(ID_MS_Disable, true);
+	
+	// menu mode
+	menu_mode->AppendRadioItem(wxID_ANY, _T("HM + texture"));
+	menu_mode->AppendRadioItem(wxID_ANY, _T("Satellite set"));
 
 	// menu bar
 	menu_bar->Append(menu_file, _T("&File"));
 	// menu_bar->Append(menu_edit, _T("&Edit"));
 	menu_bar->Append(menu_view, _T("&View"));
+	menu_bar->Append(menu_shaders, _T("&Shaders"));
+	menu_bar->Append(menu_mode, _T("&Mode"));
 	// menu_bar->Append(menu_help, _T("&Help"));
 	frame->SetMenuBar(menu_bar);
-
-	// menu eventy
-	// frame->Connect(ID_M_New, wxEVT_MENU)wxCommandEventHandler(MyFrame::OnQuit), 
-
-
-	//// status bar
-	// TODO potreba?
-    /*
-	 * frame->CreateStatusBar();
-	 * frame->SetStatusText(_T("status bar for teh lulz"));
-     */
-
 
 	// heightmap bitmapbutton
     /*
@@ -281,28 +305,13 @@ bool CEditorApp::OnInit()
 	// toolpanel_heightmap_sizer->Add(bmpb2, 1, wxALL|wxEXPAND);
 
 	frame->SetSizer(top_sizer);
-
-
-
-
-    /*
-	 * int w, h;
-	 * GetClientSize(&w, &h);
-	 * editor->InitGL(w, h);
-     */
-
-
-
-
 	frame->Show(TRUE);
-	
-
-	// TODO je potreba vytvorit context, aby to fungovalo
-/*
- * 
- *     int err = glewInit();
- *     if (err != GLEW_OK)
- *         cout << "Error: " << glewGetErrorString(err) << endl;
- */
 	return TRUE;
+}
+
+int CEditorApp::OnExit()
+{
+	// DEBUG
+	cout << "APP EXITING" << endl;
+	editor->CleanUp();
 }

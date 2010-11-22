@@ -1,20 +1,23 @@
-#version 140
+#version 330
 
-uniform vec3 MyTime;
-out vec3 c;
+uniform mat4 projection;
+uniform mat4 modelview;
+uniform float t;
 
-uniform Transformation {
-    mat4 projection_matrix;
-    mat4 modelview_matrix;
-};
- 
 in vec3 vertex;
-vec3 pos;
- 
+in vec3 in_color;
+in vec2 in_texcoord;
+
+out vec3 color;
+out vec2 texcoord;
+
 void main()
 {
-	c = MyTime;
-    gl_Position = projection_matrix * modelview_matrix * vec4(vec3(0,0,0), 1.0);
-   // gl_Position = vec4(5.0,5.0,5.0,1.0);
+	vec4 tmp = vec4(vertex, 1.0);
+	//tmp.y += 1000.0;
+	//tmp.x *= 0.1*t;
+	//tmp.x += 8.8*sin(t);
+	color = in_color;
+	texcoord = in_texcoord;
+	gl_Position = projection*modelview*tmp;
 }
-

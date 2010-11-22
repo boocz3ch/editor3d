@@ -9,7 +9,8 @@ CMap::CMap():
 	m_normalize(DEFAULT_NORMALIZE), m_width(0), m_height(0),
 
 	m_heightmap(0), m_texture(0), m_texture_id(0),
-	m_heightmap_name(_T("")), m_texture_name(_T(""))
+	m_heightmap_name(_T("")), m_texture_name(_T("")),
+	m_shader(0), m_use_shaders(true)
 {
 }
 
@@ -23,6 +24,16 @@ CMap::~CMap()
 		delete [] m_color_array;
 	if (m_texcoord_array)
 		delete [] m_texcoord_array;
+	if (m_shader)
+		delete m_shader;
+}
+void CMap::InitShaders()
+{
+	// TODO remove hardcode
+	m_shader = new CShader();
+	m_shader->Add("shader/shader.vert", GL_VERTEX_SHADER);
+	m_shader->Add("shader/shader.frag", GL_FRAGMENT_SHADER);
+	m_shader->Link();
 }
 
 void CMap::Create(int w, int h, bool is_new = false)
@@ -137,10 +148,13 @@ void CMap::Save(const wxString &fname)
 	// vzit displacement mapu, pricist k originalu, ulozit pres wxImage
 }
 
+// TODO TODO TODO
 void CMap::SendToClient()
 {
 	GLuint nbufs_del = 0;
 	GLuint ids_del[4] = {0,};
+	// DEBUG var
+	int b;
 	
 	// textures
 	if (m_texture) {
@@ -162,6 +176,7 @@ void CMap::SendToClient()
 	}
 
 	//// VBOs
+	
 	if (m_vertex_array_id == 0)
 		glGenBuffers(1, &m_vertex_array_id);
 	else
@@ -185,32 +200,88 @@ void CMap::SendToClient()
 		std::cout << "deleting buffers from gpu ram: " << nbufs_del << std::endl;
 	}
 	
+	/////////////////////////
+	GLint prog = m_shader->GetProgram();
+	m_shader->Use();
+	
 	// vertex buffer
 	glBindBuffer(GL_ARRAY_BUFFER, m_vertex_array_id);
 	glBufferData(GL_ARRAY_BUFFER, m_nverts*sizeof(GLfloat), m_vertex_array, GL_DYNAMIC_DRAW);
-	glVertexPointer(3, GL_FLOAT, 0, 0);
-	glEnableClientState(GL_VERTEX_ARRAY);
+	
+	// fixed pipeline data
+	// --------------
+	// glVertexPointer(3, GL_FLOAT, 0, 0);
+	// glEnableClientState(GL_VERTEX_ARRAY);
+	// --------------
+	// shaders data
+	// --------------
+	// glVertexAttribPointer(pos_vertex, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	// glEnableVertexAttribArray(pos_vertex);
+	// --------------
 
+	GLint pos_vertex = glGetAttribLocation(prog, "vertex");
+	GLint pos_color = glGetAttribLocation(prog, "in_color");
+	GLint pos_texcoord = glGetAttribLocation(prog, "in_texcoord");
+	assert(pos_vertex >= 0);
+	assert(pos_color >= 0);
+	assert(pos_texcoord >= 0);
+	
+	glVertexAttribPointer(pos_vertex, 3, GL_FLOAT, GL_FALSE, 0, 0);
+	glEnableVertexAttribArray(pos_vertex);
+	// DEBUG
+	glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
+	cout << "vertex array size: " << b << endl;
+	
 	// index buffer
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_index_array_id);
-	glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_nindices*sizeof(GLuint), m_index_array, GL_STATIC_DRAW);
-
+	glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_nindices*sizeof(GLuint),
+			m_index_array, GL_STATIC_DRAW);
+	// DEBUG
+	glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
+	cout << "index array size: " << b << endl;
+	
 	// color buffer
 	glBindBuffer(GL_ARRAY_BUFFER, m_color_array_id);
 	glBufferData(GL_ARRAY_BUFFER, m_nverts*sizeof(GLfloat), m_color_array, GL_DYNAMIC_DRAW);
-	glColorPointer(3, GL_FLOAT, 0, 0);
-	glEnableClientState(GL_COLOR_ARRAY);
-
+	glVertexAttribPointer(pos_color, 3, GL_FLOAT, GL_TRUE, 0, 0);
+	glEnableVertexAttribArray(pos_color);
+	
 	// texture buffer
 	if (m_texcoord_array) {
 		glBindBuffer(GL_ARRAY_BUFFER, m_texcoord_array_id);
 		glBufferData(GL_ARRAY_BUFFER, m_nverts*2*sizeof(float), m_texcoord_array, GL_STATIC_DRAW);
-		glTexCoordPointer(2, GL_FLOAT, 0, 0);
-		glEnableClientState(GL_TEXTURE_COORD_ARRAY);
+		glVertexAttribPointer(pos_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
+		glEnableVertexAttribArray(pos_texcoord);
 	}
 }
 
 void CMap::Render(int render_state)
 {
+	GLuint prog = m_shader->GetProgram();
+	
+	GLint pos_modelview = glGetUniformLocation(prog, "modelview");
+	assert(pos_modelview >= 0);
+	
+	GLint pos_projection = glGetUniformLocation(prog, "projection");
+	assert(pos_projection >= 0);
+	
+	GLfloat projection[16], modelview[16];
+	glGetFloatv(GL_MODELVIEW_MATRIX, modelview);
+	glGetFloatv(GL_PROJECTION_MATRIX, projection);
+	
+	glUniformMatrix4fv(pos_modelview, 1, GL_FALSE, modelview);
+	glUniformMatrix4fv(pos_projection, 1, GL_FALSE, projection);
+	
+    /*
+	 * if (m_use_shaders) {
+	 *     m_vert_shader->Use();
+	 *     m_frag_shader->Use();
+	 * }
+	 * else {
+	 *     glUseProgram(0);
+	 * }
+     */
+	// glEnable(GL_CULL_FACE);
+
 	glDrawElements(render_state, m_nindices, GL_UNSIGNED_INT, 0);
 }

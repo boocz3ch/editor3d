@@ -10,6 +10,9 @@ enum {
 
 	ID_MV_Solid,
 	ID_MV_Wireframe,
+	
+	ID_MS_Enable,
+	ID_MS_Disable,
 
 	ID_BMPBUT_Heightmap,
 	ID_BMPBUT_Texture,
@@ -46,12 +49,17 @@ public:
 	wxBitmapButton *m_bmpbut_heightmap;
 
 	CRootFrame();
+	// ~CRootFrame();
 	void OnNew(wxCommandEvent &);
 	void OnSave(wxCommandEvent &);
 	void OnLoad(wxCommandEvent &);
 	void OnQuit(wxCommandEvent &);
 	void OnViewSolid(wxCommandEvent &);
 	void OnViewWireframe(wxCommandEvent &);
+	void OnShadersEnable(wxCommandEvent &);
+	void OnShadersDisable(wxCommandEvent &);
+	
+	// void OnKeyDown(wxKeyEvent &);
 	
 	CCanvas *GetCanvas() { return m_glcanvas; }
 	void SetCanvas(CCanvas *c) { m_glcanvas = c; }
@@ -66,12 +74,15 @@ BEGIN_EVENT_TABLE(CRootFrame, wxFrame)
 	EVT_MENU(ID_MF_Quit, CRootFrame::OnQuit)
 	EVT_MENU(ID_MV_Solid, CRootFrame::OnViewSolid)
 	EVT_MENU(ID_MV_Wireframe, CRootFrame::OnViewWireframe)
+	EVT_MENU(ID_MS_Enable, CRootFrame::OnShadersEnable)
+	EVT_MENU(ID_MS_Disable, CRootFrame::OnShadersDisable)
 	// EVT_BUTTON(ID_BMPBUT_Heightmap, CRootFrame::OnLoad)
-	// EVT_CLOSE()
+	//EVT_CLOSE()
 END_EVENT_TABLE()
 
 class CEditorApp: public wxApp
 {
 	virtual bool OnInit();
+	virtual int OnExit();
 };
 

@@ -3,9 +3,6 @@
 #include <GL/glu.h>
 
 #include "globals.h"
-// TODO
-#include "quaternion.h"
-// TODO
 
 // debug
 #include <iostream>
@@ -17,24 +14,14 @@ CEditor *CEditor::m_inst = 0;
 
 CEditor::CEditor():
 	m_map(0), m_zoom(1.0), m_render_state(GL_TRIANGLES),
-	m_clickpointer(Vec3(0, 0, 0)), m_viewport_size(wxSize(0, 0)),
-	m_sync(true)
+	m_clickpointer(Vec3(0, 0, 0)),
+	// m_camera(Vec3(51,56,51), Vec3(10,0,10), Vec3(0,1,0)),
+	m_viewport_size(wxSize(0, 0)),
+	m_sync(true),
+	m_enable_shaders(false),
+	m_mode(MODE_HM)
 {
-	memset(&m_camera, 0, sizeof(Camera));
-	m_camera.pos[0] = 51;
-	m_camera.pos[1] = 56.0;
-	m_camera.pos[2] = 51.0;
-
-	m_camera.eye[0] = m_camera.pos[0] ;
-	m_camera.eye[1] = m_camera.pos[1]* sin(m_camera.v_angle/180 * 3.141592654f);
-	m_camera.eye[2] = m_camera.pos[2]* sin(m_camera.v_angle/180 * 3.141592654f);
-
-	m_camera.up[0] = 0.0;
-	m_camera.up[1] = 1.0;
-	m_camera.up[2] = 0.0;
-
-	m_camera.h_angle = 0;
-	m_camera.v_angle = 0;
+	m_camera.Set(Vec3(51, 56, 51), -1.9, -0.9);
 }
 
 void CEditor::Init()
@@ -43,33 +30,12 @@ void CEditor::Init()
 	wxInitAllImageHandlers();
 	
 	m_map = new CMap();
-	m_map->Load(_T("../data/test1.png"), _T("../data/rock_high.bmp"));
-}
-
-void CEditor::MoveCameraFocus(float x, float y, float z)
-{
-	m_camera.eye[0] += x;
-	m_camera.eye[1] += y;
-	m_camera.eye[2] += z;
-	// m_camera.v_angle += x/10.0;
-	// cout << m_camera.v_angle << endl;
-	// // m_camera.eye[1] = m_camera.pos[1]* sin(m_camera.v_angle/180.0 * 3.141592654f);
-	// m_camera.eye[0] = m_camera.pos[0]* sin(m_camera.v_angle/180.0 * 3.141592654f);
-}
-
-void CEditor::OnResize(int w, int h)
-{
-	m_viewport_size = wxSize(w, h);
-
-	glViewport(0, 0, w, h);
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluPerspective(DEFAULT_FOV_Y * m_zoom, w / static_cast<float>(h), NEAR_PLANE, FAR_PLANE);
-	glMatrixMode(GL_MODELVIEW);
+	m_map->Load(_T("../data/676.png"), _T("../data/676.jpg"));
 }
 
 void CEditor::InitGL(int w, int h)
 {
+	// init gl
 	glClearDepth(1.0);
 	glDepthFunc(GL_LESS);
 	glEnable(GL_DEPTH_TEST);
@@ -85,19 +51,52 @@ void CEditor::InitGL(int w, int h)
 	glMatrixMode(GL_MODELVIEW);
 
 	m_viewport_size = wxSize(w, h);
+	
+	// init shaders
+	m_map->InitShaders();
+}
+
+void CEditor::MoveCameraFocus(float x, float y, float z)
+{
+	m_camera.Rotate(x, z, 0.009);
+}
+void CEditor::MoveCamera(float d)
+{
+	m_camera.Move(d);
+}
+void CEditor::SlideCamera(float h, float v)
+{
+	m_camera.Slide(h, v);
+}
+
+void CEditor::OnResize(int w, int h)
+{
+	m_viewport_size = wxSize(w, h);
+
+	glViewport(0, 0, w, h);
+	glMatrixMode(GL_PROJECTION);
+	glLoadIdentity();
+	gluPerspective(DEFAULT_FOV_Y * m_zoom, w / static_cast<float>(h), NEAR_PLANE, FAR_PLANE);
+	glMatrixMode(GL_MODELVIEW);
 }
 
 void CEditor::AdjustZoom(float offset) {
-	float ratio = m_viewport_size.x / static_cast<float>(m_viewport_size.y);
-	m_zoom *= offset;
-
-	if (m_zoom > MAX_ZOOM) m_zoom = MAX_ZOOM;
-	if (m_zoom < MIN_ZOOM) m_zoom = MIN_ZOOM;
-
-	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();
-	gluPerspective(DEFAULT_FOV_Y * m_zoom, ratio, NEAR_PLANE, FAR_PLANE);
-	glMatrixMode(GL_MODELVIEW);
+/*
+ *     float ratio = m_viewport_size.x / static_cast<float>(m_viewport_size.y);
+ *     m_zoom *= offset;
+ * 
+ *     if (m_zoom > MAX_ZOOM) m_zoom = MAX_ZOOM;
+ *     if (m_zoom < MIN_ZOOM) m_zoom = MIN_ZOOM;
+ * 
+ *     glMatrixMode(GL_PROJECTION);
+ *     glLoadIdentity();
+ *     gluPerspective(DEFAULT_FOV_Y * m_zoom, ratio, NEAR_PLANE, FAR_PLANE);
+ *     glMatrixMode(GL_MODELVIEW);
+ */
+	if (offset < 1.0)
+		m_camera.Move(offset * 3.0);
+	else
+		m_camera.Move(-offset * 3.0);
 }
 
 Vec3 CEditor::Pick(int mx, int my)
@@ -182,27 +181,33 @@ void CEditor::SaveMap(const wxString &fname)
 
 void CEditor::Render()
 {
-	glClearColor(0.0, 0.0, 0.0, 0.0);
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
-	gluLookAt(m_camera.pos[0], m_camera.pos[1], m_camera.pos[2],
-			m_camera.eye[0], m_camera.eye[1], m_camera.eye[2],
-			m_camera.up[0], m_camera.up[1], m_camera.up[2]
-			);
+	
+	Vec3 pos = m_camera.GetPosition();
+	Vec3 tar = m_camera.GetTarget();
+	Vec3 up = m_camera.GetUp();
+	
+	gluLookAt(pos.x, pos.y, pos.z,
+			tar.x, tar.y, tar.z,
+			up.x, up.y, up.z);
 	
 	if (m_sync) {
 		m_map->SendToClient();
 		m_sync = false;
 	}
-	// glDrawArrays(GL_TRIANGLES, 0, tricount);
-	// glBindTexture(GL_TEXTURE_2D, tex);
 	m_map->Render(m_render_state);
 
-	glFlush();
-
+	// glFlush();
 	// glDrawPixels(512, 512, GL_RGB, GL_UNSIGNED_BYTE, m_texture->GetData());
 }
 
-
+void CEditor::CleanUp()
+{
+	if (m_map)
+		delete m_map;
+	if (m_inst)
+		delete m_inst;
+}
 
 } // namespace Editor

@@ -1,8 +1,17 @@
-in vec3 c;
+//#version 150
+#version 330
+
+uniform sampler2D tex;
+//layout (location = 0, index = 0) out vec4 fragColor;
+
+in vec3 color;
+in vec2 texcoord;
+out vec4 final_color;
+
 void main()
 {
-	vec3 color = vec3(0.2, 0.5, 0.9);
-	gl_FragColor = vec4(c, 0.4);
+	// modrej filter
+	final_color = vec4(color, 1.0) * texture2D(tex, texcoord);
 }
 
 
