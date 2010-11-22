@@ -1,4 +1,3 @@
-//#version 150
 #version 330
 
 uniform sampler2D tex;
@@ -10,7 +9,6 @@ out vec4 final_color;
 
 void main()
 {
-	// modrej filter
 	final_color = vec4(color, 1.0) * texture2D(tex, texcoord);
 }
 
