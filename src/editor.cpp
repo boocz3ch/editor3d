@@ -12,6 +12,11 @@ namespace Editor {
 
 CEditor *CEditor::m_inst = 0;
 
+void CEditor::InitCamera()
+{
+	m_camera.Set(Vec3(51, 56, 51), -1.9, -0.9);
+}
+
 CEditor::CEditor():
 	m_map(0), m_zoom(1.0), m_render_state(GL_TRIANGLES),
 	m_clickpointer(Vec3(0, 0, 0)),
@@ -21,7 +26,7 @@ CEditor::CEditor():
 	m_enable_shaders(false),
 	m_mode(MODE_HM)
 {
-	m_camera.Set(Vec3(51, 56, 51), -1.9, -0.9);
+	InitCamera();
 }
 
 void CEditor::Init()
@@ -139,20 +144,28 @@ void CEditor::ProcessPicked(Vec3 &vpicked)
 	int hmx = (int)hm_coord.x; 
 	int hmy = (int)hm_coord.z; 
 	
+	wxImage *displacement = m_map->GetDisplacementMap();
+	
+	// TODO tohle prepsat
 	// vertexy
 	glBindBuffer(GL_ARRAY_BUFFER, m_map->GetVertexArrayID());
 	float *data = (float *)glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
 	const int rad = 40;
+	int ind;
 	for (int offx = -rad/2; offx <= rad/2; ++offx) {
 		for (int offy = -rad/2; offy <= rad/2; ++offy) {
 			if (hmx+offx < 0  || hmx+offx > sizex-1) continue;
 			if (hmy+offy < 0  || hmy+offy > sizey-1) continue;
 
-			data[(hmx+offx + (hmy+offy) * sizex) * 3 + 1] += (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 4.0;
+			float set = (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 4.0;
+			ind = (hmx+offx + (hmy+offy) * sizex) * 3 + 1;
+			data[ind] += set;
+			if (data[ind] * m_map->GetNormalize()*4 > 255.0) data[ind] = 255.0/(m_map->GetNormalize()*4);
 		}
 	}
 	glUnmapBuffer(GL_ARRAY_BUFFER);
 	
+	// TODO tohle taky	
 	// barva
 	glBindBuffer(GL_ARRAY_BUFFER, m_map->GetColorArrayID());
 	data = (float *)glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
@@ -161,9 +174,21 @@ void CEditor::ProcessPicked(Vec3 &vpicked)
 			if (hmx+offx < 0  || hmx+offx > sizex-1) continue;
 			if (hmy+offy < 0  || hmy+offy > sizey-1) continue;
 
-			data[(hmx+offx + (hmy+offy) * sizex) * 3 ] += (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 68.0 + 0.15;
-			data[(hmx+offx + (hmy+offy) * sizex) * 3 + 1] += (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 68.0 + 0.15;
-			data[(hmx+offx + (hmy+offy) * sizex) * 3 + 2] += (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 68.0 + 0.15;
+			float set = (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 68.0 + 0.15;
+			float dis_color;
+			ind = (hmx+offx + (hmy+offy) * sizex) * 3 ;
+			dis_color = data[ind] += set;
+			if (data[ind]> 1.0) data[ind] = 1.0;
+			data[ind + 1] += set;
+			if (data[ind+1]> 1.0) data[ind+1] = 1.0;
+			data[ind + 2] += set;
+			if (data[ind+2]> 1.0) data[ind+2] = 1.0;
+			
+			// cout << dis_color << " ";
+			
+			if (dis_color > 1.0) dis_color = 1.0;
+			dis_color *= 255;
+			displacement->SetRGB(hmx+offx,hmy+offy, dis_color, dis_color, dis_color);
 		}
 	}
 	glUnmapBuffer(GL_ARRAY_BUFFER);
@@ -174,6 +199,10 @@ void CEditor::SetHeightMap(const wxString &fname)
 	m_map->Load(fname, m_map->GetTextureName());
 	m_sync = true;
 }
+void CEditor::SetTexture(const wxString &fname)
+{
+	m_map->SetTexture(fname);
+}
 void CEditor::SaveMap(const wxString &fname)
 {
 	m_map->Save(fname);
@@ -181,6 +210,9 @@ void CEditor::SaveMap(const wxString &fname)
 
 void CEditor::Render()
 {
+	// TODO TODO TODO
+	// return;
+	// TODO TODO TODO
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 	
@@ -200,6 +232,11 @@ void CEditor::Render()
 
 	// glFlush();
 	// glDrawPixels(512, 512, GL_RGB, GL_UNSIGNED_BYTE, m_texture->GetData());
+}
+
+void CEditor::UpdateShader(const Vec3 &p)
+{
+	m_map->UpdateShader(p);
 }
 
 void CEditor::CleanUp()

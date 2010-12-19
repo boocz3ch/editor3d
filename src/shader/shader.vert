@@ -8,16 +8,23 @@ in vec3 vertex;
 in vec3 in_color;
 in vec2 in_texcoord;
 
+// picked vertex
+uniform vec3 in_picked;
+// pass picked to fragment shader
+out vec3 out_picked;
+
+out vec3 out_vertex;
 out vec3 color;
 out vec2 texcoord;
 
 void main()
 {
-	vec4 tmp = vec4(vertex, 1.0);
-	//tmp.y += 1000.0;
-	//tmp.x *= 0.1*t;
-	//tmp.x += 8.8*sin(t);
+	// pass data to frag shader
 	color = in_color;
 	texcoord = in_texcoord;
-	gl_Position = projection*modelview*tmp;
+	out_vertex = vertex;
+	out_picked = in_picked;
+
+	// out it goes
+	gl_Position = projection * modelview * vec4(vertex, 1.0);
 }

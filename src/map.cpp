@@ -10,7 +10,8 @@ CMap::CMap():
 
 	m_heightmap(0), m_texture(0), m_texture_id(0),
 	m_heightmap_name(_T("")), m_texture_name(_T("")),
-	m_shader(0), m_use_shaders(true)
+	m_shader(0), m_use_shaders(true),
+	m_displacement(0)
 {
 }
 
@@ -132,23 +133,78 @@ void CMap::Load(const wxString &heightmap_name, const wxString &texture_name)
 		throw;
 	m_texture = new wxImage(texture_name);
 	// TODO
-	if (!m_heightmap)
+	if (!m_texture)
 		throw;
 	m_heightmap_name = heightmap_name;
 	m_texture_name = texture_name;
+	
 
 	int w = m_heightmap->GetWidth();
 	int h = m_heightmap->GetHeight();
 	
+	//TODO
+	const wxBitmap *tmp = new wxBitmap(w, h, 24);
+	m_displacement = new wxImage(tmp->ConvertToImage());
+	m_displacement->SetRGB(wxRect(0,0,w,h), 0, 0, 0);
+	
 	this->Create(w, h);
+}
+
+void CMap::SetOpenGLTexture()
+{
+	glBindTexture(GL_TEXTURE_2D, m_texture_id);
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_texture->GetWidth(),
+			m_texture->GetWidth(), 0, GL_RGB, GL_UNSIGNED_BYTE,
+			m_texture->GetData());
+}
+
+void CMap::SetTexture(const wxString &fname)
+{
+	if (m_texture != 0)
+		delete m_texture;
+	
+	m_texture = new wxImage(fname);
+	// TODO
+	if (!m_texture)
+		throw;
+	m_texture_name = fname;
+	
+	SetOpenGLTexture();
 }
 
 void CMap::Save(const wxString &fname)
 {
-	// vzit displacement mapu, pricist k originalu, ulozit pres wxImage
+	// nejdriv vytvorit wximage
+	glBindBuffer(GL_ARRAY_BUFFER, GetVertexArrayID());
+	float *data = (float *)glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
+	unsigned char *cdata = new unsigned char[m_nverts];
+	
+	unsigned int i = 0;
+	unsigned char texel;
+	int aux;
+	for (int j = 0; j < m_nverts; j += 3) {
+		aux = static_cast<int>(data[j+1] * m_normalize * 4);
+		texel = (aux <= 255) ? aux : 255;
+		cdata[j] = texel;
+		cdata[j+1] = texel;
+		cdata[j+2] = texel;
+	}
+	
+	// ulozit
+	cout << "saving" << endl;
+	wxImage *bmp = new wxImage(m_width, m_height, cdata, true);
+	bmp->SaveFile(fname, wxBITMAP_TYPE_PNG);
+	cout << "saved" << endl;
+	
+	glUnmapBuffer(GL_ARRAY_BUFFER);
+	delete [] cdata;
+	delete bmp;
+	
 }
 
-// TODO TODO TODO
 void CMap::SendToClient()
 {
 	GLuint nbufs_del = 0;
@@ -160,15 +216,7 @@ void CMap::SendToClient()
 	if (m_texture) {
 		if (m_texture_id == 0)
 			glGenTextures(1, &m_texture_id);
-		glBindTexture(GL_TEXTURE_2D, m_texture_id);
-
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP);
-		// glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, m_texture->GetWidth(),
-				m_texture->GetWidth(), 0, GL_RGB, GL_UNSIGNED_BYTE,
-				m_texture->GetData());
+		SetOpenGLTexture();
 		glEnable(GL_TEXTURE_2D);
 	}
 	else {
@@ -213,6 +261,7 @@ void CMap::SendToClient()
 	// glVertexPointer(3, GL_FLOAT, 0, 0);
 	// glEnableClientState(GL_VERTEX_ARRAY);
 	// --------------
+	// 
 	// shaders data
 	// --------------
 	// glVertexAttribPointer(pos_vertex, 3, GL_FLOAT, GL_FALSE, 0, 0);
@@ -258,7 +307,16 @@ void CMap::SendToClient()
 void CMap::Render(int render_state)
 {
 	GLuint prog = m_shader->GetProgram();
+    /*
+	 * if (m_use_shaders) {
+	 *     m_shader->Use();
+	 * }
+	 * else {
+	 *     glUseProgram(0);
+	 * }
+     */
 	
+	// TODO optim: getUniformy se muzou volat jen jednou a ne tady
 	GLint pos_modelview = glGetUniformLocation(prog, "modelview");
 	assert(pos_modelview >= 0);
 	
@@ -272,16 +330,14 @@ void CMap::Render(int render_state)
 	glUniformMatrix4fv(pos_modelview, 1, GL_FALSE, modelview);
 	glUniformMatrix4fv(pos_projection, 1, GL_FALSE, projection);
 	
-    /*
-	 * if (m_use_shaders) {
-	 *     m_vert_shader->Use();
-	 *     m_frag_shader->Use();
-	 * }
-	 * else {
-	 *     glUseProgram(0);
-	 * }
-     */
 	// glEnable(GL_CULL_FACE);
 
 	glDrawElements(render_state, m_nindices, GL_UNSIGNED_INT, 0);
+}
+
+void CMap::UpdateShader(const Vec3 &p)
+{
+	GLint pos_in_picked = glGetUniformLocation(m_shader->GetProgram(), "in_picked");
+	assert(pos_in_picked >= 0);
+	glUniform3f(pos_in_picked, p.x, p.y, p.z);
 }

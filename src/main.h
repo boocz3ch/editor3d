@@ -1,11 +1,13 @@
 #include <wx/wx.h>
 #include <wx/glcanvas.h>
+#include <wx/notebook.h>
 #include "globals.h"
 
 enum {
 	ID_MF_New,
 	ID_MF_Save,
 	ID_MF_Load,
+	ID_MF_LoadTexture,
 	ID_MF_Quit,
 
 	ID_MV_Solid,
@@ -17,6 +19,17 @@ enum {
 	ID_BMPBUT_Heightmap,
 	ID_BMPBUT_Texture,
 };
+
+class CPanel: public wxPanel {
+public:
+	CPanel(wxFrame *);
+	void OnPaint(wxPaintEvent &);
+protected:
+	DECLARE_EVENT_TABLE()
+};
+BEGIN_EVENT_TABLE(CPanel, wxPanel)
+	EVT_PAINT(CPanel::OnPaint)
+END_EVENT_TABLE()
 
 
 class CCanvas: public wxGLCanvas {
@@ -53,6 +66,7 @@ public:
 	void OnNew(wxCommandEvent &);
 	void OnSave(wxCommandEvent &);
 	void OnLoad(wxCommandEvent &);
+	void OnLoadTexture(wxCommandEvent &);
 	void OnQuit(wxCommandEvent &);
 	void OnViewSolid(wxCommandEvent &);
 	void OnViewWireframe(wxCommandEvent &);
@@ -63,6 +77,9 @@ public:
 	
 	CCanvas *GetCanvas() { return m_glcanvas; }
 	void SetCanvas(CCanvas *c) { m_glcanvas = c; }
+	
+	void SetStatusHeightMap();
+	void SetStatusTexture();
 protected:
 	DECLARE_EVENT_TABLE()
 };
@@ -71,6 +88,7 @@ BEGIN_EVENT_TABLE(CRootFrame, wxFrame)
 	EVT_MENU(ID_MF_New, CRootFrame::OnNew)
 	EVT_MENU(ID_MF_Save, CRootFrame::OnSave)
 	EVT_MENU(ID_MF_Load, CRootFrame::OnLoad)
+	EVT_MENU(ID_MF_LoadTexture, CRootFrame::OnLoadTexture)
 	EVT_MENU(ID_MF_Quit, CRootFrame::OnQuit)
 	EVT_MENU(ID_MV_Solid, CRootFrame::OnViewSolid)
 	EVT_MENU(ID_MV_Wireframe, CRootFrame::OnViewWireframe)
@@ -79,6 +97,13 @@ BEGIN_EVENT_TABLE(CRootFrame, wxFrame)
 	// EVT_BUTTON(ID_BMPBUT_Heightmap, CRootFrame::OnLoad)
 	//EVT_CLOSE()
 END_EVENT_TABLE()
+	
+class CToolboxFrame: public wxFrame
+{
+	wxNotebook *m_notebook;
+public:
+	CToolboxFrame(wxWindow *);
+};
 
 class CEditorApp: public wxApp
 {

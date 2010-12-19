@@ -57,6 +57,7 @@ public:
 
 	void OnResize(int, int);
 
+	void InitCamera();
 	void MoveCameraFocus(float, float, float);
 	void MoveCamera(float);
 	void SlideCamera(float, float);
@@ -67,6 +68,8 @@ public:
 
 	void SaveMap(const wxString &);
 
+	// update shader
+	void UpdateShader(const Vec3 &);
 
 
 	// set n get

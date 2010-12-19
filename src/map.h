@@ -4,6 +4,7 @@
 #define GL_GLEXT_PROTOTYPES
 #include <wx/wx.h>
 #include <GL/gl.h>
+#include "vec3.h"
 #include "shader.h"
 
 class CMap {
@@ -38,6 +39,8 @@ class CMap {
 	
 	CShader *m_shader;
 	bool m_use_shaders;
+	
+	wxImage *m_displacement;
 public:
 	CMap();
 	~CMap();
@@ -53,8 +56,13 @@ public:
 	// set n get
 	GLuint GetVertexArrayID() { return m_vertex_array_id; }
 	GLuint GetColorArrayID() { return m_color_array_id; }
+	GLuint GetTexCoordArrayID() { return m_texcoord_array_id; }
 	
 	wxImage *GetHeightMap() { return m_heightmap; }
+	wxImage *GetTexture() { return m_texture; }
+	void SetOpenGLTexture();
+	void SetTexture(const wxString &);
+	wxImage *GetDisplacementMap() { return m_displacement; }
 	
 	GLfloat GetNormalize() { return m_normalize; }
 	
@@ -66,6 +74,7 @@ public:
 	
 	void InitShaders();
 	void UseShaders(bool b) { m_use_shaders = b; }
+	void UpdateShader(const Vec3 &);
 };
 
 #endif

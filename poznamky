@@ -29,3 +29,8 @@ zpusob pickingu kdyz nebude vyrenderovanej jen teren (pouzit dalsi render target
 a delat tam?)
 neco lepciho nez pri novym nacteni smazat -> znova vytvorit novy data v pameti i
 na karte?
+
+k ukladani:
+problem rozliseni pri ukladani vysky vertexu - max je 255
+	reseni: displacement mapa + dalsi mapa, ktera bude rikat, kolikrat se
+	displacement ma nasobit
