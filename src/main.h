@@ -8,7 +8,6 @@ enum {
 	ID_MF_New,
 	ID_MF_Save,
 	ID_MF_Load,
-	ID_MF_LoadTexture,
 	ID_MF_Quit,
 
 	ID_MV_Solid,
@@ -16,6 +15,7 @@ enum {
 	//
 };
 
+// definice vlastniho nazvu eventu
 DEFINE_EVENT_TYPE(EVT_EDITOR_REPAINT_ALL)
 
 class CPanel: public wxPanel {
@@ -24,6 +24,7 @@ class CPanel: public wxPanel {
 	bool m_tex;
 public:
 	CPanel(wxFrame *);
+	virtual ~CPanel();
 	void OnPaint(wxPaintEvent &);
 	void OnSize(wxSizeEvent &);
 	void OnMouseLeftDown(wxMouseEvent &);
@@ -39,7 +40,6 @@ BEGIN_EVENT_TABLE(CPanel, wxPanel)
 	EVT_SIZE(CPanel::OnSize)
 	EVT_LEFT_DOWN(CPanel::OnMouseLeftDown)
 	// EVT_COMMAND(wxID_ANY, EVT_EDITOR_REPAINT_ALL, CPanel::OnEditorRepaint)
-	// EVT_KEY_DOWN(CPanel::OnKeyDown)
 END_EVENT_TABLE()
 
 
@@ -70,11 +70,10 @@ class CRootFrame: public wxFrame
 public:
 
 	CRootFrame();
-	// ~CRootFrame();
+	virtual ~CRootFrame();
 	void OnNew(wxCommandEvent &);
 	void OnSave(wxCommandEvent &);
 	void OnLoad(wxCommandEvent &);
-	void OnLoadTexture(wxCommandEvent &);
 	void OnQuit(wxCommandEvent &);
 	void OnViewSolid(wxCommandEvent &);
 	void OnViewWireframe(wxCommandEvent &);
@@ -100,7 +99,6 @@ BEGIN_EVENT_TABLE(CRootFrame, wxFrame)
 	EVT_MENU(ID_MF_New, CRootFrame::OnNew)
 	EVT_MENU(ID_MF_Save, CRootFrame::OnSave)
 	EVT_MENU(ID_MF_Load, CRootFrame::OnLoad)
-	EVT_MENU(ID_MF_LoadTexture, CRootFrame::OnLoadTexture)
 	EVT_MENU(ID_MF_Quit, CRootFrame::OnQuit)
 	EVT_MENU(ID_MV_Solid, CRootFrame::OnViewSolid)
 	EVT_MENU(ID_MV_Wireframe, CRootFrame::OnViewWireframe)

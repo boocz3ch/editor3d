@@ -17,10 +17,14 @@ CPanel::CPanel(wxFrame *parent):
 	wxPanel(parent), m_image(0), m_tex(false)
 {
 }
+CPanel::~CPanel()
+{
+	if (m_image)
+		delete m_image;
+}
 void CPanel::OnPaint(wxPaintEvent &e)
 {
 	if (!m_image) {
-		// std::cout << "no image!" << std::endl;
 		e.Skip();
 		return;
 	}
@@ -78,8 +82,8 @@ void CPanel::OnMouseLeftDown(wxMouseEvent &e)
 	r.y = (my/*  - r.height/2.0 */) * factor_y;
 	editor->SetWorldView(r);
 	
-	// DEBUG
-	std::cout << "world view set: " << r.x << ", " << r.y << std::endl;
+	// log
+	wxLogVerbose(_T("World view set: [%d, %d]"), r.x, r.y);
 	
 	editor->CreateMapFromView();
 	editor->SetSync();
@@ -114,7 +118,7 @@ void CCanvas::OnPaint(wxPaintEvent &e)
 	SetCurrent();
 	wxPaintDC(this);
 
-	// init gl only once, but after setcurrent
+	// inicializovat GL jednou, ale az po SetCurrent
 	if (go) {
 		editor->InitGL(w, h);
 		go = false;
@@ -158,12 +162,12 @@ void CCanvas::OnKeyDown(wxKeyEvent &e)
 }
 void CCanvas::OnMouseEvents(wxMouseEvent &e)
 {
-	static int last_x, last_y;
+	static int last_x = 0, last_y = 0;
 	int x = e.GetX();
 	int y = e.GetY();
 	float delta_x = (x - last_x);
 	float delta_y = (y - last_y);
-	int wheel_rot;
+	int wheel_rot = 0;
 
 	if (e.Dragging()) { // dragging
 		if (e.RightIsDown() && e.LeftIsDown()) {
@@ -186,6 +190,8 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	}
 	
 	Vec3 p = editor->Pick(x, y);
+	// TODO valgrind vypisuje naky chyby grafickej ovladacu s neinicializovanyma
+	// hodnotama.. 
 	editor->UpdateShader(p);
 	Refresh(false);
 	
@@ -204,21 +210,18 @@ CRootFrame::CRootFrame()
 	m_glcanvas(0), m_world_hm_panel(0), m_world_tex_panel(0)
 {
 }
+CRootFrame::~CRootFrame()
+{
+}
 
 void CRootFrame::OnNew(wxCommandEvent &e)
 {
-	// TODO otevrit dialog, ve kterym se bude dat nastavit pocatecni textura, mapa,
-	// velikost, ...
-	
+	// TODO onnew nejspis nebude potreba
+	// popr. to bude obnovovat data do stavu, v jakym byly pred editaci
 	const int sizex = 256;
 	const int sizey = 256;
 	
 	editor->GetMap()->Create(sizex, sizey, true);
-#ifdef DEBUG
-	// // std::cout << string(m_heightmap_name.ToAscii()) + " loaded" << endl;
-	// std::cout << "triangles: " << m_ntriangles << std::endl;
-	// std::cout << "indices: " << m_nindices << std::endl;
-#endif
 	editor->SetSync();
 	SetStatusHeightMap();
 	
@@ -262,7 +265,7 @@ void CRootFrame::SetStatusTexture()
 
 void CRootFrame::OnLoad(wxCommandEvent &e)
 {
-
+	// TODO onload bude nejspis jen vybirat cestu k datum
 	wxFileDialog *open_file = new wxFileDialog(this, _T("Open file"), _T(""), _T(""), _T("*.png;*.jpg;*.bmp"),
 			wxOPEN, wxDefaultPosition);
 	if (open_file->ShowModal() == wxID_OK)
@@ -272,18 +275,6 @@ void CRootFrame::OnLoad(wxCommandEvent &e)
 		SetStatusHeightMap();
 		
 		editor->InitCamera();
-	}
-}
-void CRootFrame::OnLoadTexture(wxCommandEvent &e)
-{
-
-	wxFileDialog *open_file = new wxFileDialog(this, _T("Open file"), _T(""), _T(""), _T("*.png;*.jpg;*.bmp"),
-			wxOPEN, wxDefaultPosition);
-	if (open_file->ShowModal() == wxID_OK)
-	{
-		// wxString fname = open_file->GetFilename();
-		editor->SetTexture(open_file->GetPath());
-		SetStatusTexture();
 	}
 }
 
@@ -315,6 +306,13 @@ void CRootFrame::OnEditorRepaint(wxCommandEvent &e)
  */
 bool CEditorApp::OnInit()
 {
+	// nastavit loggera
+	wxLog *logger = new wxLogStream(&std::cout);
+	wxLog::SetActiveTarget(logger);
+#ifdef DEBUG
+	logger->SetVerbose(true);
+#endif
+	
 	// todle se provede jen jednou tady? vzhledem k tomu ze pointer je
 	// globalni..
 	editor = Editor::CEditor::GetInstance();
@@ -322,14 +320,14 @@ bool CEditorApp::OnInit()
 		editor->Init();
 	}
 	catch (CException &e) {
+		wxLogError(wxString::FromAscii(e.what()));
 		e.show();
 		throw;
 	}
+	
 
 	//// frame
 	CRootFrame *frame = new CRootFrame;
-	// inicializace globalniho pointeru
-	// rootframe = frame;
 
 	// menu
 	wxMenuBar *menu_bar = new wxMenuBar;
@@ -341,7 +339,6 @@ bool CEditorApp::OnInit()
 	menu_file->Append(ID_MF_New, _T("New"));
 	menu_file->Append(ID_MF_Save, _T("Save"));
 	menu_file->Append(ID_MF_Load, _T("Load"));
-	menu_file->Append(ID_MF_LoadTexture, _T("Load Texture"));
 	menu_file->AppendSeparator();
 	menu_file->Append(ID_MF_Quit, _T("E&xit"));
 
@@ -380,26 +377,6 @@ bool CEditorApp::OnInit()
 	hm_h = editor->GetMap()->GetTexture()->GetHeight();
 	hm_text << _T(": ") << hm_w << _T(" x ") << hm_h;
 	frame->SetStatusText(hm_text, 1);
-	// gcard ram used, ...
-
-	// heightmap bitmapbutton
-    /*
-	 * wxImage *tmp = new wxImage(*editor->GetHeightMap());
-	 * tmp->Rescale(100, 100);
-	 * wxBitmap *heightmap_bmp = new wxBitmap(*tmp);
-	 * delete tmp;
-	 * frame->m_bmpbut_heightmap = new wxBitmapButton(frame, ID_BMPBUT_Heightmap, *heightmap_bmp, wxDefaultPosition,
-	 *         wxSize(100, 100));
-     */
-
-	// texture bitmapbutton
-	// tmp = new wxImage(*editor->GetTexture());
-	// tmp->Rescale(100, 100);
-	// wxBitmap *texture_bmp = new wxBitmap(*tmp);
-	// delete tmp;
-	// wxBitmapButton *bmpb2 = new wxBitmapButton(frame, wxID_ANY, *texture_bmp, wxDefaultPosition,
-			// wxSize(100, 100));
-
 
 	// canvas
 	int al[] = {WX_GL_RGBA, WX_GL_DOUBLEBUFFER};
@@ -422,13 +399,6 @@ bool CEditorApp::OnInit()
 	 * wxStaticBoxSizer *toolpanel_texture_sizer = new wxStaticBoxSizer(texture_sbox, wxVERTICAL);
      */
 	
-	//test
-    /*
-	 * wxButton *b1 = new wxButton(frame, wxID_OK, _T("test1"));
-	 * wxButton *b2 = new wxButton(frame, wxID_OK, _T("test2"));
-	 * wxButton *b3 = new wxButton(frame, wxID_OK, _T("test3"));
-	 * wxButton *b4 = new wxButton(frame, wxID_OK, _T("test3"));
-     */
 	// wxButton *b1 = new wxButton(frame, wxID_OK, _T("test1"));
 
 	 
@@ -486,8 +456,7 @@ bool CEditorApp::OnInit()
 
 int CEditorApp::OnExit()
 {
-	// DEBUG
-	std::cout << "APP EXITING" << std::endl;
+	wxLogVerbose(_T("Editor exiting.."));
 	editor->CleanUp();
 	
 	return GL_TRUE;

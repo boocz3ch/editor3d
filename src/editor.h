@@ -26,13 +26,14 @@ class CEditor {
 	CMap *m_map;
 	// nacteny svet
 	CTileGrid *m_tilegrid;
-	
+	// zpusob renderovani
 	GLuint m_render_state;
-	
 	// souradnice ve svete po kliknuti mysi
 	Vec3 m_clickpointer;
 	
+	// kamera
 	CCamera m_camera;
+	// viewport
 	wxSize m_viewport_size;
 	
 	// synchronizace pro odesilani dat na grafickou kartu

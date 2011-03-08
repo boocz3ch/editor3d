@@ -52,7 +52,8 @@ void CShader::PrintInfoLog()
 			infoLog = new char[infologLength];
 
 			glGetShaderInfoLog(*it, infologLength, &charsWritten, infoLog);
-			std::cout << "shader " << *it << " info log" << std::endl;
+			// DEBUG/log
+			std::cout << "Shader " << *it << " info log:" << std::endl;
 			std::cout << infoLog;
 
 			glGetProgramInfoLog(*it, infologLength, &charsWritten, infoLog);

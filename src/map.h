@@ -10,7 +10,7 @@
 
 const wxSize DEFAULT_HM_SIZE(256, 256);
 const wxSize DEFAULT_TEX_SIZE(2048, 2048);
-const wxSize DEFAULT_VIEW_SIZE(128, 128);
+const wxSize DEFAULT_VIEW_SIZE(256, 256);
 /*
  * const wxSize DEFAULT_TILEGRID_HM_SIZE(512, 512);
  * const wxSize DEFAULT_TILEGRID_TEX_SIZE(4096, 4096);
@@ -68,10 +68,9 @@ public:
 	// void Load(wxImage *, wxImage *, const wxString &heightmap_name,
 			// const wxString &texture_name);
 	void Load(CTileGrid *);
-	void LoadFromWorldMap();
 	void Save(const wxString &);
 	
-	void SendToClient();
+	void SendToServer();
 	void Render(int);
 	
 	// set n get
@@ -120,14 +119,15 @@ public:
 	
 	void Save();
 	
-	// getters
+	// get
 	std::vector<TileInfo> &GetTiles() { return m_tiles; }
 	wxSize &GetSize() { return m_size; }
 	wxRect &GetView() { return m_view; }
-	void SetView(const wxRect &r) { m_view = r; }
-	
 	wxImage *GetWorldHeightMap() { return m_world_hm; }
 	wxImage *GetWorldTexture() { return m_world_tex; }
+	
+	// set
+	void SetView(const wxRect &r) { m_view = r; }
 };
 
 #endif

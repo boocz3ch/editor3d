@@ -36,10 +36,8 @@ void CEditor::LoadWorldMap()
 	if (!dir.IsOpened()) {
 		throw CException("CEditor::LoadWorldMap: Root dir not opened");
 	}
-	else {
-		// DEBUG
-		std::cout << "opened " << dir.GetName().ToAscii() << std::endl;
-	}
+	// log
+	wxLogVerbose(_T("Opened ") + dir.GetName());
 	
     /*
 	 * bool cont = dir.GetFirst(&fname);
@@ -57,8 +55,10 @@ void CEditor::LoadWorldMap()
 	
 	wxArrayString all_files;
 	wxDir::GetAllFiles(dir.GetName(), &all_files);
-	// DEBUG
-	std::cerr << "number of terrain tile file paths: " << all_files.GetCount() << std::endl;
+	
+	// log
+	wxLogVerbose(_T("Number of terrain tile file paths: %d"), all_files.GetCount());
+	
 	for (unsigned int i=0; i<all_files.GetCount(); ++i) {
 		fname = all_files[i];
 		// DEBUG
@@ -114,8 +114,8 @@ void CEditor::LoadWorldMap()
 
 void CEditor::CreateMapFromView()
 {
-	// DEBUG
-	std::cout << "CEditor::CreateMapFromView: Creating.." << std::endl;
+	// log
+	wxLogVerbose(_T("CEditor::CreateMapFromView: Creating.."));
 	m_map->CreateFromView(m_tilegrid);
 }
 	
@@ -199,7 +199,10 @@ void CEditor::Init()
 	m_map = new CMap();
 	// m_map->Load(m_tilegrid);
 	// throw CException("CEditor::Init(): stopper throw");
-	m_map->Load(_T("../data/676.png"), _T("../data/676.jpg"));
+	// m_map->Load(_T("../data/676.png"), _T("../data/676.jpg"));
+	
+	CreateMapFromView();
+	SetSync();
 	
 	// throw;
 }
@@ -263,8 +266,8 @@ Vec3 CEditor::Pick(int mx, int my)
 	GLint viewport[4];
 	GLdouble modelview[16];
 	GLdouble projection[16];
-	GLfloat fmx, fmy, fmz;
-	GLdouble posx, posy, posz;
+	GLfloat fmx = 0.0, fmy = 0.0, fmz = 0.0;
+	GLdouble posx = 0.0, posy = 0.0, posz = 0.0;
 	
 	glGetIntegerv(GL_VIEWPORT, viewport);
 	glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
@@ -292,11 +295,11 @@ void CEditor::ProcessPicked(Vec3 &vpicked)
 	int sizex = m_map->GetWidth();
 	int sizey = m_map->GetHeight();
 
-	// DEBUG TODO NAPSAT DEBUG SYSTEM
-	std::cout << "souradnice v hmape: " << hm_coord.x << "," << hm_coord.z << std::endl;
+	// DEBUG
+	// std::cout << "souradnice v hmape: " << hm_coord.x << "," << hm_coord.z << std::endl;
 	
-	int hmx = (int)hm_coord.x; 
-	int hmy = (int)hm_coord.z; 
+	int hmx = static_cast<int>(hm_coord.x); 
+	int hmy = static_cast<int>(hm_coord.z); 
 	
 	// TODO tohle prepsat
 	// vertexy
@@ -338,9 +341,6 @@ void CEditor::SaveWorld()
 
 void CEditor::Render()
 {
-	// TODO TODO TODO
-	// return;
-	// TODO TODO TODO
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	glLoadIdentity();
 	
@@ -353,7 +353,7 @@ void CEditor::Render()
 			up.x, up.y, up.z);
 	
 	if (m_sync) {
-		m_map->SendToClient();
+		m_map->SendToServer();
 		m_sync = false;
 	}
 	m_map->Render(m_render_state);
@@ -369,10 +369,18 @@ void CEditor::UpdateShader(const Vec3 &p)
 
 void CEditor::CleanUp()
 {
-	if (m_map)
-		delete m_map;
-	if (m_inst)
-		delete m_inst;
+    /*
+	 * if (m_map)
+	 *     delete m_map;
+     */
+    /*
+	 * if (m_inst)
+	 *     delete m_inst;
+     */
+    /*
+	 * if (m_tilegrid)
+	 *     delete m_tilegrid;
+     */
 }
 
 } // namespace Editor

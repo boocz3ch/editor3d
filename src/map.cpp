@@ -112,28 +112,32 @@ void CMap::Create(int w, int h, bool is_new = false)
 
 void CMap::Load(const wxString &heightmap_name, const wxString &texture_name)
 {
-	if (m_heightmap != 0)
-		delete m_heightmap;
-	if (m_texture != 0)
-		delete m_texture;
-	
-	m_heightmap = new wxImage(heightmap_name);
-	// TODO
-	if (!m_heightmap)
-		throw;
-	m_texture = new wxImage(texture_name);
-	// TODO
-	if (!m_texture)
-		throw;
-	m_heightmap_name = heightmap_name;
-	m_texture_name = texture_name;
-	
-
-	int w = m_heightmap->GetWidth();
-	int h = m_heightmap->GetHeight();
-	
-	
-	this->Create(w, h);
+/*
+ *     if (m_heightmap != 0)
+ *         delete m_heightmap;
+ *     if (m_texture != 0)
+ *         delete m_texture;
+ *     
+ *     m_heightmap = new wxImage(heightmap_name);
+ *     // TODO
+ *     if (!m_heightmap)
+ *         throw;
+ *     m_texture = new wxImage(texture_name);
+ *     // TODO
+ *     if (!m_texture)
+ *         throw;
+ *     m_heightmap_name = heightmap_name;
+ *     m_texture_name = texture_name;
+ *     
+ * 
+ *     int w = m_heightmap->GetWidth();
+ *     int h = m_heightmap->GetHeight();
+ *     
+ *     
+ *     this->Create(w, h);
+ */
+	// TODO stopper
+	throw;
 }
 
 /*
@@ -145,19 +149,11 @@ void CMap::Load(CTileGrid *tilegrid)
 	
 	// DEBUG
 	std::cerr << "CMap::Load: Loading from tilegrid." << std::endl;
-    /*
-	 * 
-	 * if (m_heightmap != 0)
-	 *     delete m_heightmap;
-	 * if (m_texture != 0)
-	 *     delete m_texture;
-	 * 
-     */
+	
+	// TODO stopper
+	throw;
 }
 
-void CMap::LoadFromWorldMap()
-{
-}
 
 void CMap::CreateFromView(CTileGrid *tilegrid)
 {
@@ -261,7 +257,7 @@ void CMap::Save(const wxString &fname)
 	
 }
 
-void CMap::SendToClient()
+void CMap::SendToServer()
 {
 	GLuint nbufs_del = 0;
 	GLuint ids_del[4] = {0,};
@@ -280,7 +276,6 @@ void CMap::SendToClient()
 	}
 
 	//// VBOs
-	
 	if (m_vertex_array_id == 0)
 		glGenBuffers(1, &m_vertex_array_id);
 	else
@@ -327,17 +322,17 @@ void CMap::SendToClient()
 	
 	glVertexAttribPointer(pos_vertex, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(pos_vertex);
-	// DEBUG
+	// log
 	glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
-	std::cout << "vertex array size: " << b << std::endl;
+	wxLogVerbose(_T("GPU: Vertex array size: %d B"), b);
 	
 	// index buffer
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_index_array_id);
 	glBufferData(GL_ELEMENT_ARRAY_BUFFER, m_nindices*sizeof(GLuint),
 			m_index_array, GL_STATIC_DRAW);
-	// DEBUG
+	// log
 	glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
-	std::cout << "index array size: " << b << std::endl;
+	wxLogVerbose(_T("GPU: Index array size: %d B"), b);
 	
 	// texture buffer
 	if (m_texcoord_array) {
@@ -395,7 +390,7 @@ void CMap::UpdateShader(const Vec3 &p)
  */
 CTileGrid::CTileGrid(std::vector<TileInfo> &maps, const wxSize &size):
 	m_tiles(maps), m_size(size), m_view(DEFAULT_VIEW_SIZE)
-{
+{ 
 	// DEBUG
     /*
 	 * std::vector<TileInfo>::iterator it = maps.begin();
@@ -409,14 +404,13 @@ CTileGrid::CTileGrid(std::vector<TileInfo> &maps, const wxSize &size):
 	wxSize tex_size = DEFAULT_TEX_SIZE;
 	tex_size.Scale(m_size.GetWidth(), m_size.GetHeight());
 	
-	// DEBUG
-	std::cout << "CTileGrid::CTileGrid: loading world" << std::endl;
-	std::cout << "\tgrid size: \t" << m_size.GetWidth() << "x" << m_size.GetHeight() << std::endl;	
-	std::cout << "\thm grid: \t" << hm_size.GetWidth() << "x" << hm_size.GetHeight() << std::endl;	
-	std::cout << "\ttex grid: \t" << tex_size.GetWidth() << "x" << tex_size.GetHeight() << std::endl;	
+	// log
+	wxLogVerbose(_T("CTileGrid::CTileGrid: Loading world..\n Grid size:\t%dx%d\n HM Grid:\t%dx%d\n Tex Grid:\t%dx%d"),
+	m_size.GetWidth(), m_size.GetHeight(),	
+	hm_size.GetWidth(), hm_size.GetHeight(),	
+	tex_size.GetWidth(), tex_size.GetHeight()
+	);	
 	
-	// wxSize hm_size_x = DEFAULT_HM_SIZE.GetWidth() * tilegrid.GetSize().GetWidth();
-
 	m_world_hm = new wxImage(
 		hm_size.GetWidth(),
 		hm_size.GetHeight()
@@ -473,6 +467,12 @@ CTileGrid::CTileGrid(std::vector<TileInfo> &maps, const wxSize &size):
 }
 CTileGrid::~CTileGrid()
 {
+    /*
+	 * if (m_world_hm)
+	 *     delete m_world_hm;
+	 * if (m_world_tex)
+	 *     delete m_world_tex;
+     */
 }
 
 void CTileGrid::MoveView(const wxPoint &offset)
@@ -485,8 +485,8 @@ void CTileGrid::MoveView(const wxPoint &offset)
 
 void CTileGrid::Save()
 {
-	// DEBUG
-	std::cout << "CTileGrid::Save: Saving.." << std::endl;
+	// log
+	wxLogVerbose(_T("CTileGrid::Save: Saving.."));
 	
 	int hm_xoff = 0, hm_yoff = 0, tex_xoff = 0, tex_yoff = 0;
 	int hm_offlimit = m_world_hm->GetWidth() - DEFAULT_HM_SIZE.GetWidth();
