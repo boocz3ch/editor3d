@@ -7,7 +7,7 @@ CShader::CShader():
 	m_program = glCreateProgram();
 }
 
-void CShader::Add(const string &fname, GLenum type)
+void CShader::Add(const std::string &fname, GLenum type)
 {
 	GLuint id = glCreateShader(type);
 
@@ -68,7 +68,7 @@ void CShader::Use()
 	glUseProgram(m_program);
 }
 
-void CShader::Load(const string &fname)
+void CShader::Load(const std::string &fname)
 {
 	int length;
 	char *buf;

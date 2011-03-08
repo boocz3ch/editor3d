@@ -3,11 +3,15 @@
 
 const wxString APP_NAME = wxT("Interactive 3D Editor");
 const wxSize APP_SIZE = wxSize(800, 600);
-const wxPoint APP_POSITION = wxPoint(300, 0);
+// const wxPoint APP_POSITION = wxPoint(300, 0);
+const wxPoint APP_POSITION = wxDefaultPosition;
 
 const wxString TOOLBOX_NAME = wxT("Toolbox");
 const wxSize TOOLBOX_SIZE = wxSize(-1, 600);
 const wxPoint TOOLBOX_POSITION = wxPoint(0, 0);
+
+const wxString HEIGHTMAP_SUFFIX = wxT("png");
+const wxString TEXTURE_SUFFIX = wxT("jpg");
 
 /*
  * const wxString MAPS_NAME = wxT("Maps");

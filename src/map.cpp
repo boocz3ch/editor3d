@@ -1,17 +1,16 @@
 #include "map.h"
+#include "exception.h"
 
 CMap::CMap():
 	m_vertex_array(0), m_vertex_array_id(0),
 	m_index_array(0), m_index_array_id(0),
-	m_color_array(0), m_color_array_id(0),
 	m_texcoord_array(0), m_texcoord_array_id(0),
 	m_ntriangles(0), m_nindices(0), m_nverts(0),
 	m_normalize(DEFAULT_NORMALIZE), m_width(0), m_height(0),
 
 	m_heightmap(0), m_texture(0), m_texture_id(0),
 	m_heightmap_name(_T("")), m_texture_name(_T("")),
-	m_shader(0), m_use_shaders(true),
-	m_displacement(0)
+	m_shader(0), m_use_shaders(true)
 {
 }
 
@@ -21,8 +20,6 @@ CMap::~CMap()
 		delete [] m_vertex_array;
 	if (m_index_array)
 		delete [] m_index_array;
-	if (m_color_array)
-		delete [] m_color_array;
 	if (m_texcoord_array)
 		delete [] m_texcoord_array;
 	if (m_shader)
@@ -51,8 +48,6 @@ void CMap::Create(int w, int h, bool is_new = false)
 		delete [] m_vertex_array;
 	if (m_index_array != 0)
 		delete [] m_index_array;
-	if (m_color_array != 0)
-		delete [] m_color_array;
 	if (m_texcoord_array != 0)
 		delete [] m_texcoord_array;
 	
@@ -60,14 +55,13 @@ void CMap::Create(int w, int h, bool is_new = false)
 	
 	m_vertex_array = new GLfloat[m_nverts];
 	m_index_array = new GLuint[m_nindices];
-	m_color_array = new GLfloat[m_nverts];
 	m_texcoord_array = new GLfloat[m_nverts * 2];
 
 	GLfloat xyz[3];
 	GLfloat uv[2];
 	GLuint iii[3];
 
-	int ind = 0, col_i = 0, tex_i = 0;
+	int ind = 0, tex_i = 0;
 	float col;
 	// heightmap -> vertex array
 	for (int y = 0; y < h; ++y) {
@@ -89,10 +83,6 @@ void CMap::Create(int w, int h, bool is_new = false)
 				uv[1] = y / (float)h;
 				memcpy(m_texcoord_array + tex_i, uv, sizeof(uv)); tex_i += 2;
 			}
-
-			// copy color
-			xyz[0] = xyz[1] = xyz[2] = col / 17.0 + 0.15;
-			memcpy(m_color_array + col_i, xyz, sizeof(xyz)); col_i += 3;
 		}
 	}
 
@@ -142,12 +132,79 @@ void CMap::Load(const wxString &heightmap_name, const wxString &texture_name)
 	int w = m_heightmap->GetWidth();
 	int h = m_heightmap->GetHeight();
 	
-	//TODO
-	const wxBitmap *tmp = new wxBitmap(w, h, 24);
-	m_displacement = new wxImage(tmp->ConvertToImage());
-	m_displacement->SetRGB(wxRect(0,0,w,h), 0, 0, 0);
 	
 	this->Create(w, h);
+}
+
+/*
+ * void CMap::Load(wxImage *heightmap, wxImage *texture,
+ *         const wxString &heightmap_name, const wxString &texture_name)
+ */
+void CMap::Load(CTileGrid *tilegrid)
+{
+	
+	// DEBUG
+	std::cerr << "CMap::Load: Loading from tilegrid." << std::endl;
+    /*
+	 * 
+	 * if (m_heightmap != 0)
+	 *     delete m_heightmap;
+	 * if (m_texture != 0)
+	 *     delete m_texture;
+	 * 
+     */
+}
+
+void CMap::LoadFromWorldMap()
+{
+}
+
+void CMap::CreateFromView(CTileGrid *tilegrid)
+{
+	if (m_heightmap != 0)
+		delete m_heightmap;
+	if (m_texture != 0)
+		delete m_texture;
+	
+	// DEBUG
+	// std::cout << "CMap::CreateFromView: Creating.." << std::endl;
+	
+	// wxSize hm_size = DEFAULT_HM_SIZE;
+	// wxSize tex_size = DEFAULT_TEX_SIZE;
+	wxRect view = tilegrid->GetView();
+	// DEBUG
+	// std::cout << "CMap::CreateFromView: Using view: " << view.x<<","<<view.y<<" : "
+	// <<view.width<<","<<view.height<< std::endl;
+	
+	
+	wxImage *hm, *tex;
+	hm = tilegrid->GetWorldHeightMap();
+	tex = tilegrid->GetWorldTexture();
+	
+	wxBitmap tmp(*hm); 
+	wxMemoryDC srcDC;
+	srcDC.SelectObject(tmp);
+	
+	wxBitmap hm_bitmap(view.width, view.height);
+	wxMemoryDC memDC;
+	memDC.SelectObject(hm_bitmap);
+	memDC.Blit(0, 0, view.width, view.height,
+			&srcDC, view.x, view.y);
+	m_heightmap = new wxImage(hm_bitmap.ConvertToImage());
+	
+	int tex_factor_x = tex->GetWidth() / hm->GetWidth();
+	int tex_factor_y = tex->GetHeight() / hm->GetHeight();
+	
+	tmp = wxBitmap(*tex);
+	srcDC.SelectObject(tmp);
+	wxBitmap tex_bitmap(view.width*tex_factor_x, view.height*tex_factor_y);
+	memDC.SelectObject(tex_bitmap);
+	memDC.Blit(0, 0, view.width*tex_factor_x, view.height*tex_factor_y,
+			&srcDC, view.x*tex_factor_x, view.y*tex_factor_y);
+	
+	m_texture = new wxImage(tex_bitmap.ConvertToImage());
+
+	this->Create(m_heightmap->GetWidth(), m_heightmap->GetHeight());
 }
 
 void CMap::SetOpenGLTexture()
@@ -182,10 +239,9 @@ void CMap::Save(const wxString &fname)
 	float *data = (float *)glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
 	unsigned char *cdata = new unsigned char[m_nverts];
 	
-	unsigned int i = 0;
 	unsigned char texel;
 	int aux;
-	for (int j = 0; j < m_nverts; j += 3) {
+	for (unsigned int j = 0; j < m_nverts; j += 3) {
 		aux = static_cast<int>(data[j+1] * m_normalize * 4);
 		texel = (aux <= 255) ? aux : 255;
 		cdata[j] = texel;
@@ -194,10 +250,10 @@ void CMap::Save(const wxString &fname)
 	}
 	
 	// ulozit
-	cout << "saving" << endl;
+	std::cout << "saving" << std::endl;
 	wxImage *bmp = new wxImage(m_width, m_height, cdata, true);
 	bmp->SaveFile(fname, wxBITMAP_TYPE_PNG);
-	cout << "saved" << endl;
+	std::cout << "saved" << std::endl;
 	
 	glUnmapBuffer(GL_ARRAY_BUFFER);
 	delete [] cdata;
@@ -233,10 +289,6 @@ void CMap::SendToClient()
 		glGenBuffers(1, &m_index_array_id);
 	else
 		ids_del[nbufs_del++] = m_index_array_id;
-	if (m_color_array_id == 0)
-		glGenBuffers(1, &m_color_array_id);
-	else
-		ids_del[nbufs_del++] = m_color_array_id;
 	if (m_texcoord_array_id == 0)
 		glGenBuffers(1, &m_texcoord_array_id);
 	else
@@ -269,17 +321,15 @@ void CMap::SendToClient()
 	// --------------
 
 	GLint pos_vertex = glGetAttribLocation(prog, "vertex");
-	GLint pos_color = glGetAttribLocation(prog, "in_color");
 	GLint pos_texcoord = glGetAttribLocation(prog, "in_texcoord");
 	assert(pos_vertex >= 0);
-	assert(pos_color >= 0);
 	assert(pos_texcoord >= 0);
 	
 	glVertexAttribPointer(pos_vertex, 3, GL_FLOAT, GL_FALSE, 0, 0);
 	glEnableVertexAttribArray(pos_vertex);
 	// DEBUG
 	glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
-	cout << "vertex array size: " << b << endl;
+	std::cout << "vertex array size: " << b << std::endl;
 	
 	// index buffer
 	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_index_array_id);
@@ -287,13 +337,7 @@ void CMap::SendToClient()
 			m_index_array, GL_STATIC_DRAW);
 	// DEBUG
 	glGetBufferParameteriv(GL_ELEMENT_ARRAY_BUFFER, GL_BUFFER_SIZE, &b);
-	cout << "index array size: " << b << endl;
-	
-	// color buffer
-	glBindBuffer(GL_ARRAY_BUFFER, m_color_array_id);
-	glBufferData(GL_ARRAY_BUFFER, m_nverts*sizeof(GLfloat), m_color_array, GL_DYNAMIC_DRAW);
-	glVertexAttribPointer(pos_color, 3, GL_FLOAT, GL_TRUE, 0, 0);
-	glEnableVertexAttribArray(pos_color);
+	std::cout << "index array size: " << b << std::endl;
 	
 	// texture buffer
 	if (m_texcoord_array) {
@@ -341,3 +385,169 @@ void CMap::UpdateShader(const Vec3 &p)
 	assert(pos_in_picked >= 0);
 	glUniform3f(pos_in_picked, p.x, p.y, p.z);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// CTileGrid
+////////////////////////////////////////////////////////////////////////////////
+/*
+ * CTileGrid
+ * nacteny svet
+ */
+CTileGrid::CTileGrid(std::vector<TileInfo> &maps, const wxSize &size):
+	m_tiles(maps), m_size(size), m_view(DEFAULT_VIEW_SIZE)
+{
+	// DEBUG
+    /*
+	 * std::vector<TileInfo>::iterator it = maps.begin();
+	 * for (; it != maps.end(); it++) {
+	 *     std::cout << it->coord.x << ", " << it->coord.y << ": " << it->path.ToAscii() << std::endl;
+	 * }
+     */
+	
+	wxSize hm_size = DEFAULT_HM_SIZE;
+	hm_size.Scale(m_size.GetWidth(), m_size.GetHeight());
+	wxSize tex_size = DEFAULT_TEX_SIZE;
+	tex_size.Scale(m_size.GetWidth(), m_size.GetHeight());
+	
+	// DEBUG
+	std::cout << "CTileGrid::CTileGrid: loading world" << std::endl;
+	std::cout << "\tgrid size: \t" << m_size.GetWidth() << "x" << m_size.GetHeight() << std::endl;	
+	std::cout << "\thm grid: \t" << hm_size.GetWidth() << "x" << hm_size.GetHeight() << std::endl;	
+	std::cout << "\ttex grid: \t" << tex_size.GetWidth() << "x" << tex_size.GetHeight() << std::endl;	
+	
+	// wxSize hm_size_x = DEFAULT_HM_SIZE.GetWidth() * tilegrid.GetSize().GetWidth();
+
+	m_world_hm = new wxImage(
+		hm_size.GetWidth(),
+		hm_size.GetHeight()
+	);
+	m_world_tex = new wxImage(
+		tex_size.GetWidth(),
+		tex_size.GetHeight()
+	);
+	
+	wxString tex_path;
+	wxImage *tile_hm, *tile_tex;
+	int hm_xoff = 0, hm_yoff = 0, tex_xoff = 0, tex_yoff = 0;
+	int hm_offlimit = hm_size.GetWidth() - DEFAULT_HM_SIZE.GetWidth();
+	int tex_offlimit = tex_size.GetWidth() - DEFAULT_TEX_SIZE.GetWidth();
+
+	std::vector<TileInfo>::iterator it = m_tiles.begin();
+	for (; it != m_tiles.end(); it++) {
+		tex_path = it->path;
+        /*
+		 * TODO Replace bere celou cestu a nahradi suffix vyskovy mapy za suffix textury.
+		 * Pokud bude nekde v ceste podretezec stejnej jako suffix vyskovy mapy, nahradi ho taky
+		 * mozna FIXME
+         */
+		tex_path.Replace(HEIGHTMAP_SUFFIX, TEXTURE_SUFFIX);
+		tex_path.Replace(_T("terrain_tiles"), _T("texture_tiles"));
+		
+		// DEBUG
+		std::cout << "tex_path: " << tex_path.ToAscii() << std::endl;
+		
+		tile_hm = new wxImage(it->path);
+		if (!tile_hm)
+			throw CException("CTileGrid::CTileGrid: Can't create wxImage");
+		tile_tex = new wxImage(tex_path);
+		if (!tile_tex)
+			throw CException("CTileGrid::CTileGrid: Can't create wxImage");
+		 
+		// DEBUG
+		std::cout << "hm_xoff " << hm_xoff << ", hm_yoff " << hm_yoff << std::endl;
+		
+		// TODO nahradit za memDC jestli to nebude rychlejsi?
+		m_world_hm->Paste(*tile_hm, hm_xoff, hm_yoff);
+		m_world_tex->Paste(*tile_tex, tex_xoff, tex_yoff);
+		
+		NextHMOffset(&hm_xoff, &hm_yoff, hm_offlimit, hm_offlimit);
+		NextTexOffset(&tex_xoff, &tex_yoff, tex_offlimit, tex_offlimit);
+		
+		// DEBUG
+		std::cout << it->path.ToAscii() << ": " << it->coord.x << ", " << it->coord.y << std::endl;
+		
+		delete tile_hm;
+		delete tile_tex;
+	}
+	
+}
+CTileGrid::~CTileGrid()
+{
+}
+
+void CTileGrid::MoveView(const wxPoint &offset)
+{
+	m_view.Offset(offset);
+	// DEBUG
+	std::cout << "CTileGrid::MoveView: " << m_view.GetX() << ", " << m_view.GetY() << std::endl;
+}
+// inflateview, deflateview => wxRect::Inflate, deflate...
+
+void CTileGrid::Save()
+{
+	// DEBUG
+	std::cout << "CTileGrid::Save: Saving.." << std::endl;
+	
+	int hm_xoff = 0, hm_yoff = 0, tex_xoff = 0, tex_yoff = 0;
+	int hm_offlimit = m_world_hm->GetWidth() - DEFAULT_HM_SIZE.GetWidth();
+	int tex_offlimit = m_world_tex->GetWidth() - DEFAULT_TEX_SIZE.GetWidth();
+	
+	wxBitmap world_bmp(*m_world_hm);
+	wxMemoryDC srcDC;
+	srcDC.SelectObject(world_bmp);
+	
+	wxBitmap dest_bmp(DEFAULT_HM_SIZE.GetWidth(), DEFAULT_HM_SIZE.GetHeight());
+	wxMemoryDC destDC;
+	destDC.SelectObject(dest_bmp);
+	
+	std::vector<TileInfo>::iterator it = m_tiles.begin();
+	for (; it != m_tiles.end(); it++) {
+		// DEBUG
+		std::cout << it->coord.x << ", " << it->coord.y << ": " << it->path.ToAscii() << std::endl;
+		std::cout << "hm_xoff " << hm_xoff << ", hm_yoff " << hm_yoff << std::endl;
+
+		destDC.Blit(0, 0, dest_bmp.GetWidth(), dest_bmp.GetHeight(),
+					&srcDC, hm_xoff, hm_yoff);
+		wxImage *img = new wxImage(dest_bmp.ConvertToImage());
+		wxString p = it->path;
+		// TODO tmp
+		// p.Replace(_T("../"), _T("./"));
+		p.Replace(_T(".png"), _T(".png.png"));
+		// TODO tmp
+		bool ok = img->SaveFile(p);
+		assert(ok);
+
+		NextHMOffset(&hm_xoff, &hm_yoff, hm_offlimit, hm_offlimit);
+		NextTexOffset(&tex_xoff, &tex_yoff, tex_offlimit, tex_offlimit);
+	}
+}
+
+void CTileGrid::NextHMOffset(int *xoff, int *yoff, int xofflimit, int yofflimit)
+{
+		if (*xoff >= xofflimit) {
+			*xoff = 0;
+			*yoff += DEFAULT_HM_SIZE.GetHeight();
+		}
+		else {
+			*xoff += DEFAULT_HM_SIZE.GetWidth();
+		}
+        /*
+		 * if (yoff > yofflimit)
+		 *     yoff = 0;
+         */
+}
+void CTileGrid::NextTexOffset(int *xoff, int *yoff, int xofflimit, int yofflimit)
+{
+		if (*xoff >= xofflimit) {
+			*xoff = 0;
+			*yoff += DEFAULT_TEX_SIZE.GetHeight();
+		}
+		else {
+			*xoff += DEFAULT_TEX_SIZE.GetWidth();
+		}
+        /*
+		 * if (yoff > yofflimit)
+		 *     yoff = 0;
+         */
+}
+

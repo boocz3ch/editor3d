@@ -1,9 +1,11 @@
-#ifndef EDITOR_H
-#define EDITOR_H
+#ifndef _EDITOR_H_
+#define _EDITOR_H_
 #define GL_GLEXT_PROTOTYPES
 #include <GL/gl.h>
 #include <GL/glext.h>
 #include <wx/wx.h>
+
+#include <map>
 
 #include "map.h"
 #include "vec3.h"
@@ -18,27 +20,33 @@ const float MIN_ZOOM = 0.005f;
 const float DEFAULT_FOV_Y = 45.0f;
 
 class CEditor {
+	// instance editoru
+	static CEditor *m_inst;
+	// prave nactena cast sveta pro editovani
 	CMap *m_map;
-	float m_zoom;
+	// nacteny svet
+	CTileGrid *m_tilegrid;
+	
 	GLuint m_render_state;
 	
+	// souradnice ve svete po kliknuti mysi
 	Vec3 m_clickpointer;
 	
 	CCamera m_camera;
 	wxSize m_viewport_size;
 	
+	// synchronizace pro odesilani dat na grafickou kartu
 	bool m_sync;
 	
-	bool m_enable_shaders;
-	enum {
-		MODE_HM,
-		MODE_SAT,
-	} m_mode;
+	// pomocna struktura pro porovnavani souradnic
+	struct PointCompare {
+		bool operator()(const wxPoint &p1, const wxPoint &p2) {
+			return (p1.x == p2.x) ? (p1.y < p2.y) : (p1.x < p2.x);
+		}
+	};
+	// svet ve forme asociativniho pole
+	std::multimap<wxPoint, wxString, PointCompare> m_world_map;
 
-
-	// CLog m_log;
-
-	static CEditor *m_inst;
 protected:
 	CEditor();
 
@@ -50,6 +58,7 @@ public:
 	}
 
 	void Init();
+	void LoadWorldMap();
 	void InitGL(int w, int h);
 	void Render();
 	void Update();
@@ -67,33 +76,29 @@ public:
 	void ProcessPicked(Vec3 &);
 
 	void SaveMap(const wxString &);
+	void SaveWorld();
+	
+	void CreateMapFromView();
 
 	// update shader
 	void UpdateShader(const Vec3 &);
+	
+	void MoveView(const wxPoint &pt) { m_tilegrid->MoveView(pt); }
+	void CleanUp();
 
 
-	// set n get
+	// get
+	CMap *GetMap() { return m_map; }
+	wxImage *GetWorldHeightMap() { return m_tilegrid->GetWorldHeightMap(); }
+	wxImage *GetWorldTexture() { return m_tilegrid->GetWorldTexture(); }
+	wxRect &GetWorldView() { return m_tilegrid->GetView(); }
+	
+	// set
 	void SetRenderState(GLuint rs) { m_render_state = rs; }
-
-	// wxImage *GetHeightMap() { return m_image; }
-	// wxImage *GetTexture() { return m_texture; }
-
-	// wxString &GetHeightMapFilename() { return m_heightmap_fname; }
-	// wxString &GetTextureFilename() { return m_texture_fname; }
-
+	void SetWorldView(const wxRect &r) { m_tilegrid->SetView(r); }
 	void SetHeightMap(const wxString &);
 	void SetTexture(const wxString &);
-	
-	CMap *GetMap() { return m_map; }
-	
 	void SetSync() { m_sync = true; }
-	
-	void EnableShaders() { m_enable_shaders = true; m_map->UseShaders(true); }
-	void DisableShaders() { m_enable_shaders = false; m_map->UseShaders(false);}
-	
-
-
-	void CleanUp();
 };
 
 }; // namespace

@@ -1,36 +1,108 @@
 #include "main.h"
 #include "editor.h"
-
-// TODO todle pride pryc az to nebude potreba
-using namespace std;
+#include "exception.h"
 
 IMPLEMENT_APP(CEditorApp)
-
+/*
+ * globalni pointer na editor, singleton	
+ */
 Editor::CEditor *editor;
 
-CCanvas::CCanvas(wxFrame *parent, int attrib_list[])
-	:wxGLCanvas(parent, wxID_ANY,  wxDefaultPosition, wxDefaultSize, 0, wxT("GLCanvas"), attrib_list)
-{
-}
 
+/*
+ * CPanel
+ * panely na vykreslovani map vedle editacniho okna
+ */
 CPanel::CPanel(wxFrame *parent):
-	wxPanel(parent)
+	wxPanel(parent), m_image(0), m_tex(false)
 {
 }
 void CPanel::OnPaint(wxPaintEvent &e)
 {
+	if (!m_image) {
+		// std::cout << "no image!" << std::endl;
+		e.Skip();
+		return;
+	}
 	wxPaintDC dc(this);
 	int w, h;
 	GetSize(&w, &h);
 	
-	wxImage *tmp = editor->GetMap()->GetDisplacementMap();
+	int img_w = m_image->GetWidth();
+	int img_h = m_image->GetHeight();
+	
 	int s = (w < h) ? w : h;
-	dc.DrawBitmap(wxBitmap(tmp->Scale(s, s)), 0, 0);
+	dc.DrawBitmap(wxBitmap(m_image->Scale(s, s)), 0, 0);
+	
+	float factor_x = img_w / float(s);
+	float factor_y = img_h / float(s);
+	if (m_tex) {
+		factor_x /= 8.0;
+		factor_y /= 8.0;
+	}
+	
+	wxRect r = editor->GetWorldView();
+	
+	dc.SetBrush(*wxTRANSPARENT_BRUSH);
+	dc.SetPen(wxPen(wxColour(0, 0, 255), 1));
+	dc.DrawRectangle(r.x / factor_x, r.y / factor_y,
+					 r.width / factor_x, r.height / factor_y);
+}
+void CPanel::OnSize(wxSizeEvent &e)
+{
+	Refresh(false);
+	e.Skip();
+}
+void CPanel::OnMouseLeftDown(wxMouseEvent &e)
+{
+	long mx, my;
+	e.GetPosition(&mx, &my);
+	// std::cout << mx << ", " << my << std::endl;
+	
+	int w, h;
+	GetSize(&w, &h);
+	
+	int img_w = m_image->GetWidth();
+	int img_h = m_image->GetHeight();
+	int s = (w < h) ? w : h;
+	
+	float factor_x = img_w / float(s);
+	float factor_y = img_h / float(s);
+	if (m_tex) {
+		factor_x /= 8.0;
+		factor_y /= 8.0;
+	}
+	
+	wxRect r = editor->GetWorldView();
+	r.x = (mx/*  - r.width/2.0 */) * factor_x;
+	r.y = (my/*  - r.height/2.0 */) * factor_y;
+	editor->SetWorldView(r);
+	
+	// DEBUG
+	std::cout << "world view set: " << r.x << ", " << r.y << std::endl;
+	
+	editor->CreateMapFromView();
+	editor->SetSync();
+	
+	// poslat repaint event pro spravne vykresleni v celem gui
+	wxCommandEvent evt(EVT_EDITOR_REPAINT_ALL);
+	evt.SetEventObject(this);
+	wxPostEvent(GetParent(), evt);
+	
+	e.Skip();
 }
 
-void CCanvas::Render(/* wxPaintEvent &e */)
+
+/*
+ * CCanvas
+ * hlavni zobrazovaci a editacni canvas
+ */
+CCanvas::CCanvas(wxFrame *parent, int attrib_list[])
+	:wxGLCanvas(parent, wxID_ANY,  wxDefaultPosition, wxDefaultSize, 0, wxT("GLCanvas"), attrib_list)
 {
-	// editor = Editor::CEditor::GetInstance();
+}
+void CCanvas::Render()
+{
 	editor->Render();
 }
 void CCanvas::OnPaint(wxPaintEvent &e)
@@ -51,38 +123,36 @@ void CCanvas::OnPaint(wxPaintEvent &e)
 	Render();
 	SwapBuffers();
 }
-
-void CCanvas::OnIdle(wxIdleEvent &e)
-{
-}
-
 void CCanvas::OnResize(wxSizeEvent &e)
 {
 	int w, h;
 	GetClientSize(&w, &h);
 	editor->OnResize(w, h);
-	// Refresh(false);
 }
-
-
 void CCanvas::OnKeyDown(wxKeyEvent &e)
 {
 	int key = e.GetKeyCode();
-	if (key == WXK_ESCAPE) {
-		wxTheApp->GetTopWindow()->Close(true);
+	CRootFrame *rootframe = reinterpret_cast<CRootFrame *>(wxTheApp->GetTopWindow());
+	switch(key) {
+		case WXK_ESCAPE:
+			rootframe->Close(true);
+			break;
+		case WXK_UP:
+			editor->MoveCamera(3.5);
+			break;
+		case WXK_DOWN:
+			editor->MoveCamera(-3.5);
+			break;
+		case WXK_LEFT:
+			editor->SlideCamera(-3.5, 0);
+			break;
+		case WXK_RIGHT:
+			editor->SlideCamera(3.5, 0);
+			break;
+		default:
+			break;
 	}
-	else if (key == WXK_UP) {
-		editor->MoveCamera(3.5);
-	}
-	else if (key == WXK_DOWN) {
-		editor->MoveCamera(-3.5);
-	}
-	else if (key == WXK_LEFT) {
-		editor->SlideCamera(-3.5, 0);
-	}
-	else if (key == WXK_RIGHT) {
-		editor->SlideCamera(3.5, 0);
-	}
+	
 	Refresh(false);
 	e.Skip();
 }
@@ -98,11 +168,9 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	if (e.Dragging()) { // dragging
 		if (e.RightIsDown() && e.LeftIsDown()) {
 			editor->SlideCamera(delta_x, -delta_y);
-			// Refresh(false);
 		}
 		else if (e.RightIsDown()) {
 			editor->MoveCameraFocus(delta_x, 0, -delta_y);
-			// Refresh(false);
 		}
 	}
 	else { // not dragging
@@ -111,12 +179,10 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 			editor->ProcessPicked(p);
 			
 			wxTheApp->GetTopWindow()->Refresh();
-			// Refresh(false);
 		}
 	}
 	if ((wheel_rot = e.GetWheelRotation()) != 0) {
 		editor->AdjustZoom((wheel_rot > 0) ? 0.9 : 1.1);
-		// Refresh(false);
 	}
 	
 	Vec3 p = editor->Pick(x, y);
@@ -129,8 +195,13 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	e.Skip();
 }
 
+/*
+ * CRootFrame
+ * hlavni wxwidgets okno aplikace
+ */
 CRootFrame::CRootFrame()
-	:wxFrame(0, -1, APP_NAME, APP_POSITION, APP_SIZE)
+	:wxFrame(0, -1, APP_NAME, APP_POSITION, APP_SIZE),
+	m_glcanvas(0), m_world_hm_panel(0), m_world_tex_panel(0)
 {
 }
 
@@ -151,21 +222,25 @@ void CRootFrame::OnNew(wxCommandEvent &e)
 	editor->SetSync();
 	SetStatusHeightMap();
 	
-	Refresh();
+	Refresh(false);
 }
 
 void CRootFrame::OnSave(wxCommandEvent &e)
 {
 
-	wxFileDialog *save_file = new wxFileDialog(this, _T("Save file"), _T(""), _T(""), _T("*.png"),
-			wxSAVE, wxDefaultPosition);
+    /*
+	 * wxFileDialog *save_file = new wxFileDialog(this, _T("Save file"), _T(""), _T(""), _T("*.png"),
+	 *         wxSAVE, wxDefaultPosition);
+	 * 
+	 * if (save_file->ShowModal() == wxID_OK)
+	 * {
+	 *     // wxString fname = save_file->GetFilename();
+	 *     // editor->SaveMap(fname);
+	 *     editor->SaveMap(save_file->GetPath());
+	 * }
+     */
 	
-	if (save_file->ShowModal() == wxID_OK)
-	{
-		// wxString fname = save_file->GetFilename();
-		// editor->SaveMap(fname);
-		editor->SaveMap(save_file->GetPath());
-	}
+	editor->SaveWorld();
 }
 
 void CRootFrame::SetStatusHeightMap()
@@ -226,35 +301,40 @@ void CRootFrame::OnViewWireframe(wxCommandEvent &e)
 	editor->SetRenderState(GL_LINES);
 }
 
-void CRootFrame::OnShadersEnable(wxCommandEvent &e)
+void CRootFrame::OnEditorRepaint(wxCommandEvent &e)
 {
-	editor->EnableShaders();
-	// DEBUG
-	cout << "shaders enabled" << endl;
-}
-void CRootFrame::OnShadersDisable(wxCommandEvent &e)
-{
-	editor->DisableShaders();
-	// DEBUG
-	cout << "shaders disabled" << endl;
+	m_glcanvas->Refresh(false);
+	m_world_hm_panel->Refresh(false);
+	m_world_tex_panel->Refresh(false);
 }
 
+
+/*
+ * CEditorApp
+ * trida aplikace
+ */
 bool CEditorApp::OnInit()
 {
 	// todle se provede jen jednou tady? vzhledem k tomu ze pointer je
 	// globalni..
 	editor = Editor::CEditor::GetInstance();
-	editor->Init();
+	try {
+		editor->Init();
+	}
+	catch (CException &e) {
+		e.show();
+		throw;
+	}
 
 	//// frame
 	CRootFrame *frame = new CRootFrame;
+	// inicializace globalniho pointeru
+	// rootframe = frame;
 
 	// menu
 	wxMenuBar *menu_bar = new wxMenuBar;
 	wxMenu *menu_file = new wxMenu;
 	wxMenu *menu_view = new wxMenu;
-	wxMenu *menu_shaders = new wxMenu;
-	wxMenu *menu_mode = new wxMenu;
 	wxMenu *menu_window = new wxMenu;
 
 	// menu file 
@@ -275,15 +355,6 @@ bool CEditorApp::OnInit()
 	 * menu_view->Append(ID_M_, _T(""));
      */
 	
-	// menu shaders
-	menu_shaders->AppendRadioItem(ID_MS_Enable, _T("Enable"));
-	menu_shaders->AppendRadioItem(ID_MS_Disable, _T("Disable"));
-	// menu_shaders->Check(ID_MS_Disable, true);
-	
-	// menu mode
-	menu_mode->AppendRadioItem(wxID_ANY, _T("HM + texture"));
-	menu_mode->AppendRadioItem(wxID_ANY, _T("Satellite set"));
-
 	// menu window
 	menu_window->AppendCheckItem(wxID_ANY + 99, _T("Show Toolbox"));
 	menu_window->Check(wxID_ANY+99, true);
@@ -293,8 +364,6 @@ bool CEditorApp::OnInit()
 	menu_bar->Append(menu_file, _T("&File"));
 	// menu_bar->Append(menu_edit, _T("&Edit"));
 	menu_bar->Append(menu_view, _T("&View"));
-	menu_bar->Append(menu_shaders, _T("&Shaders"));
-	menu_bar->Append(menu_mode, _T("&Mode"));
 	menu_bar->Append(menu_window, _T("&Window"));
 	// menu_bar->Append(menu_help, _T("&Help"));
 	frame->SetMenuBar(menu_bar);
@@ -340,6 +409,10 @@ bool CEditorApp::OnInit()
 	// sizer hierarchy
 	wxBoxSizer *top_sizer = new wxBoxSizer(wxHORIZONTAL);
 	wxBoxSizer *toolpanel_top_sizer = new wxBoxSizer(wxVERTICAL);
+	
+	// sizer pro vykreslovani nactenyho sveta
+	wxBoxSizer *world_sizer = new wxBoxSizer(wxVERTICAL);
+
 
     /*
 	 * wxStaticBox *heightmap_sbox = new wxStaticBox(frame, -1, _T("Heightmap"));
@@ -356,11 +429,26 @@ bool CEditorApp::OnInit()
 	 * wxButton *b3 = new wxButton(frame, wxID_OK, _T("test3"));
 	 * wxButton *b4 = new wxButton(frame, wxID_OK, _T("test3"));
      */
+	// wxButton *b1 = new wxButton(frame, wxID_OK, _T("test1"));
 
+	 
+	// bocni panel se svetem
+	wxRect r = editor->GetWorldView(); 
+	CPanel *tmp = new CPanel(frame);
+	tmp->SetImg(editor->GetWorldHeightMap());
+	world_sizer->Add(tmp, 1, wxEXPAND); 
+	frame->SetHmPanel(tmp);
+	
+	tmp = new CPanel(frame);
+	tmp->SetImg(editor->GetWorldTexture());
+	tmp->SetTex(true);
+	world_sizer->Add(tmp, 1, wxEXPAND); 
+	frame->SetTexPanel(tmp);
+	
+	// naplnit hlavni sizer
 	top_sizer->Add(toolpanel_top_sizer); 
 	top_sizer->Add(canvas, 3, wxALL | wxEXPAND); 
-	// panel na displacement mapu
-	// top_sizer->Add(new CPanel(frame), 1, wxEXPAND); 
+	top_sizer->Add(world_sizer, 1, wxALL | wxEXPAND ); 
 
     /*
 	 * toolpanel_top_sizer->Add(toolpanel_heightmap_sizer, 1, wxALL | wxEXPAND);
@@ -382,21 +470,34 @@ bool CEditorApp::OnInit()
 	// toolpanel_heightmap_sizer->Add(b2, 1, wxALL|wxEXPAND);
 	// toolpanel_heightmap_sizer->Add(b3, 1, wxALL|wxEXPAND);
 	// toolpanel_heightmap_sizer->Add(bmpb2, 1, wxALL|wxEXPAND);
-
-	SetTopWindow(frame);
-	frame->SetSizer(top_sizer);
-	frame->Show(TRUE);
 	
-
 	//// FRAME TOOLBOX
     /*
 	 * wxFrame *frame_toolbox = new CToolboxFrame(frame);
 	 * frame_toolbox->Show(TRUE);
      */
 	
+	SetTopWindow(frame);
+	frame->SetSizer(top_sizer);
+	frame->Show(TRUE);
 	
 	return TRUE;
 }
+
+int CEditorApp::OnExit()
+{
+	// DEBUG
+	std::cout << "APP EXITING" << std::endl;
+	editor->CleanUp();
+	
+	return GL_TRUE;
+}
+
+
+/*
+ * CToolboxFrame
+ * okno panelu nastroju
+ */
 CToolboxFrame::CToolboxFrame(wxWindow *parent)
 	:wxFrame(parent, -1, TOOLBOX_NAME, TOOLBOX_POSITION, TOOLBOX_SIZE),
 	m_notebook(new wxNotebook(this, wxID_ANY))
@@ -417,10 +518,10 @@ CToolboxFrame::CToolboxFrame(wxWindow *parent)
 	wxPanel *panel_texture = new wxPanel(p, wxID_ANY);
 	wxPanel *p3 = new wxPanel(p, wxID_ANY);
 	wxPanel *p4 = new wxPanel(p, wxID_ANY);
-	wxCheckBox *cb_heightmap = new wxCheckBox(p, wxID_ANY, _T(""));
-	wxCheckBox *cb_texture = new wxCheckBox(p, wxID_ANY, _T(""));
-	wxCheckBox *cb3 = new wxCheckBox(p, wxID_ANY, _T(""));
-	wxCheckBox *cb4 = new wxCheckBox(p, wxID_ANY, _T(""));
+	// wxCheckBox *cb_heightmap = new wxCheckBox(p, wxID_ANY, _T(""));
+	// wxCheckBox *cb_texture = new wxCheckBox(p, wxID_ANY, _T(""));
+	// wxCheckBox *cb3 = new wxCheckBox(p, wxID_ANY, _T(""));
+	// wxCheckBox *cb4 = new wxCheckBox(p, wxID_ANY, _T(""));
 	
 	panel_heightmap->SetMinSize(wxSize(200, 200));
 	panel_texture->SetMinSize(wxSize(200, 200));
@@ -458,11 +559,3 @@ CToolboxFrame::CToolboxFrame(wxWindow *parent)
 	//
 }
 
-int CEditorApp::OnExit()
-{
-	// DEBUG
-	cout << "APP EXITING" << endl;
-	editor->CleanUp();
-	
-	return GL_TRUE;
-}

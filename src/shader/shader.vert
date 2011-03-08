@@ -20,7 +20,6 @@ out vec2 texcoord;
 void main()
 {
 	// pass data to frag shader
-	color = in_color;
 	texcoord = in_texcoord;
 	out_vertex = vertex;
 	out_picked = in_picked;

@@ -1,6 +1,5 @@
-#ifndef _SHADER_H
-#define _SHADER_H
-
+#ifndef _SHADER_H_
+#define _SHADER_H_
 #include <iostream>
 #include <string>
 #include <fstream>
@@ -9,22 +8,16 @@
 #include <GL/gl.h>
 #include <GL/glext.h>
 
-using namespace std;
-
-struct Exception {
-	std::string msg;
-};
-
 class CShader {
 	std::vector<GLuint> m_ids;
 	GLuint m_program;
 	std::string m_source;
 	
-	void Load(const string &);
+	void Load(const std::string &);
 public:
 	CShader();
 	~CShader();
-	void Add(const string &fname, GLenum);
+	void Add(const std::string &fname, GLenum);
 	void Link();
 	void PrintInfoLog();
 	GLuint GetProgram() { return m_program; }
