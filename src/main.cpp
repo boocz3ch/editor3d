@@ -2,20 +2,24 @@
 #include "editor.h"
 #include "exception.h"
 
+#include <string>
+
 IMPLEMENT_APP(CEditorApp)
 /*
  * globalni pointer na editor, singleton	
  */
 Editor::CEditor *editor;
 
-
 /*
  * CPanel
  * panely na vykreslovani map vedle editacniho okna
  */
-CPanel::CPanel(wxFrame *parent):
-	wxPanel(parent), m_image(0), m_tex(false)
+CPanel::CPanel(wxFrame *parent, bool clickable):
+	wxPanel(parent), m_image(0), m_tex(false), m_clickable(clickable),
+	m_shift(false)
 {
+	SetMinSize(wxSize(100, 100));
+	SetMaxSize(wxSize(100, 100));
 }
 CPanel::~CPanel()
 {
@@ -35,11 +39,11 @@ void CPanel::OnPaint(wxPaintEvent &e)
 	int img_w = m_image->GetWidth();
 	int img_h = m_image->GetHeight();
 	
-	int s = (w < h) ? w : h;
-	dc.DrawBitmap(wxBitmap(m_image->Scale(s, s)), 0, 0);
+	// int s = (w < h) ? w : h;
+	dc.DrawBitmap(wxBitmap(m_image->Scale(w, h)), 0, 0);
 	
-	float factor_x = img_w / float(s);
-	float factor_y = img_h / float(s);
+	float factor_x = img_w / float(w);
+	float factor_y = img_h / float(h);
 	if (m_tex) {
 		factor_x /= 8.0;
 		factor_y /= 8.0;
@@ -47,10 +51,28 @@ void CPanel::OnPaint(wxPaintEvent &e)
 	
 	wxRect r = editor->GetWorldView();
 	
-	dc.SetBrush(*wxTRANSPARENT_BRUSH);
-	dc.SetPen(wxPen(wxColour(0, 0, 255), 1));
-	dc.DrawRectangle(r.x / factor_x, r.y / factor_y,
-					 r.width / factor_x, r.height / factor_y);
+	if (m_clickable) {
+		dc.SetBrush(*wxTRANSPARENT_BRUSH);
+		dc.SetPen(wxPen(wxColour(0, 0, 255), 1));
+		dc.DrawRectangle(r.x / factor_x, r.y / factor_y,
+						 r.width / factor_x, r.height / factor_y);
+		if (m_shift) {
+			wxRect r2 = r;
+			
+			// posun okynka na minimape pri posunu po datasetu
+			// tohle musi bejt totozny s map.cpp: CMap::CreateFromView ~250
+			if (r.x< 0) r2.x += 256;
+			if (r.x> 256) r2.x -= 256;
+			if (r.y< 0) r2.y += 256;
+			if (r.y> 256) r2.y -= 256;
+			
+			m_shift = false;
+			
+			dc.SetPen(wxPen(wxColour(250, 0, 0), 1));
+			dc.DrawRectangle(r2.x / factor_x, r2.y / factor_y,
+							 r2.width / factor_x, r2.height / factor_y);
+		}
+	}
 }
 void CPanel::OnSize(wxSizeEvent &e)
 {
@@ -59,6 +81,9 @@ void CPanel::OnSize(wxSizeEvent &e)
 }
 void CPanel::OnMouseLeftDown(wxMouseEvent &e)
 {
+	if (!m_clickable)
+		return;
+	
 	long mx, my;
 	e.GetPosition(&mx, &my);
 	// std::cout << mx << ", " << my << std::endl;
@@ -77,25 +102,42 @@ void CPanel::OnMouseLeftDown(wxMouseEvent &e)
 		factor_y /= 8.0;
 	}
 	
+	CTileGrid *tg = editor->GetTileGrid();
+	
 	wxRect r = editor->GetWorldView();
-	r.x = (mx/*  - r.width/2.0 */) * factor_x;
-	r.y = (my/*  - r.height/2.0 */) * factor_y;
-	editor->SetWorldView(r);
+	r.x = mx * factor_x - r.width/2.0;
+	r.y = my * factor_y - r.width/2.0;
+	tg->SetView(r);
+	
+	bool should_move;
+	// pokud uz vlakno skoncilo, kontrolujem hranice
+	if (tg->GetPreloadReady()) {
+		wxPoint dir, coord;
+		TileInfo cur_tile;
+		
+		if (tg->CheckViewBounds(&dir)) {
+			should_move = tg->ShiftWorld(dir);
+			if (should_move) {
+				tg->CreateWorldImage();
+				tg->SetAndRunLoader();
+			}
+			m_shift = true;
+		}
+	}
 	
 	// log
 	wxLogVerbose(_T("World view set: [%d, %d]"), r.x, r.y);
 	
-	editor->CreateMapFromView();
+	// vytvorit novou mapu z pohledu a poslat na grafiku
+	editor->CreateMapFromView(m_shift);
 	editor->SetSync();
 	
 	// poslat repaint event pro spravne vykresleni v celem gui
 	wxCommandEvent evt(EVT_EDITOR_REPAINT_ALL);
-	evt.SetEventObject(this);
 	wxPostEvent(GetParent(), evt);
 	
 	e.Skip();
 }
-
 
 /*
  * CCanvas
@@ -105,10 +147,13 @@ CCanvas::CCanvas(wxFrame *parent, int attrib_list[])
 	:wxGLCanvas(parent, wxID_ANY,  wxDefaultPosition, wxDefaultSize, 0, wxT("GLCanvas"), attrib_list)
 {
 }
+
 void CCanvas::Render()
 {
+	editor->Select();
 	editor->Render();
 }
+
 void CCanvas::OnPaint(wxPaintEvent &e)
 {
 	int w, h;
@@ -160,6 +205,7 @@ void CCanvas::OnKeyDown(wxKeyEvent &e)
 	Refresh(false);
 	e.Skip();
 }
+
 void CCanvas::OnMouseEvents(wxMouseEvent &e)
 {
 	static int last_x = 0, last_y = 0;
@@ -170,29 +216,39 @@ void CCanvas::OnMouseEvents(wxMouseEvent &e)
 	int wheel_rot = 0;
 
 	if (e.Dragging()) { // dragging
-		if (e.RightIsDown() && e.LeftIsDown()) {
-			editor->SlideCamera(delta_x, -delta_y);
+		if (e.MiddleIsDown()) {
+			editor->SlideCamera(delta_x, delta_y);
+		        editor->SetMouseState(false, false);
 		}
 		else if (e.RightIsDown()) {
 			editor->MoveCameraFocus(delta_x, 0, -delta_y);
+		        editor->SetMouseState(false, false);
+		}
+		else if (e.LeftIsDown()) {
+			editor->SetMouseState(true, false);
+		}
+		else {
+			editor->SetMouseState(false, false);
 		}
 	}
 	else { // not dragging
 		if (e.LeftIsDown()) {
 			Vec3 p = editor->Pick(x, y);
-			editor->ProcessPicked(p);
-			
+			editor->SetClickPointer(p);
+			editor->SetMouseState(true, false);
+			editor->UpdatePickedPoint(x, y, true);
 			wxTheApp->GetTopWindow()->Refresh();
+		}
+		else {
+			editor->SetMouseState(false, false);
+			editor->UpdatePickedPoint(x, y, false);
 		}
 	}
 	if ((wheel_rot = e.GetWheelRotation()) != 0) {
 		editor->AdjustZoom((wheel_rot > 0) ? 0.9 : 1.1);
 	}
-	
-	Vec3 p = editor->Pick(x, y);
-	// TODO valgrind vypisuje naky chyby grafickej ovladacu s neinicializovanyma
-	// hodnotama.. 
-	editor->UpdateShader(p);
+
+	editor->SetMousePos(x, y, last_x, last_y);
 	Refresh(false);
 	
 	last_x = x;
@@ -214,73 +270,137 @@ CRootFrame::~CRootFrame()
 {
 }
 
-void CRootFrame::OnNew(wxCommandEvent &e)
-{
-	// TODO onnew nejspis nebude potreba
-	// popr. to bude obnovovat data do stavu, v jakym byly pred editaci
-	const int sizex = 256;
-	const int sizey = 256;
-	
-	editor->GetMap()->Create(sizex, sizey, true);
-	editor->SetSync();
-	SetStatusHeightMap();
-	
-	Refresh(false);
-}
-
 void CRootFrame::OnSave(wxCommandEvent &e)
 {
-
-    /*
-	 * wxFileDialog *save_file = new wxFileDialog(this, _T("Save file"), _T(""), _T(""), _T("*.png"),
-	 *         wxSAVE, wxDefaultPosition);
-	 * 
-	 * if (save_file->ShowModal() == wxID_OK)
-	 * {
-	 *     // wxString fname = save_file->GetFilename();
-	 *     // editor->SaveMap(fname);
-	 *     editor->SaveMap(save_file->GetPath());
-	 * }
-     */
-	
-	editor->SaveWorld();
-}
-
-void CRootFrame::SetStatusHeightMap()
-{
-	int hm_w = editor->GetMap()->GetHeightMap()->GetWidth();
-	int hm_h = editor->GetMap()->GetHeightMap()->GetHeight();
-	wxString hm_text = editor->GetMap()->GetHeightMapName();
-	hm_text << _T(": ") << hm_w << _T(" x ") << hm_h;
-	SetStatusText(hm_text, 0);
-}
-void CRootFrame::SetStatusTexture()
-{
-	int hm_w = editor->GetMap()->GetTexture()->GetWidth();
-	int hm_h = editor->GetMap()->GetTexture()->GetHeight();
-	wxString hm_text = editor->GetMap()->GetTextureName();
-	hm_text << _T(": ") << hm_w << _T(" x ") << hm_h;
-	SetStatusText(hm_text, 1);
-}
-
-void CRootFrame::OnLoad(wxCommandEvent &e)
-{
-	// TODO onload bude nejspis jen vybirat cestu k datum
-	wxFileDialog *open_file = new wxFileDialog(this, _T("Open file"), _T(""), _T(""), _T("*.png;*.jpg;*.bmp"),
-			wxOPEN, wxDefaultPosition);
-	if (open_file->ShowModal() == wxID_OK)
-	{
-		// wxString fname = open_file->GetFilename();
-		editor->SetHeightMap(open_file->GetPath());
-		SetStatusHeightMap();
-		
-		editor->InitCamera();
-	}
+	wxMessageBox( wxT("To be implemented :("), wxT("Saving.."),
+			wxICON_INFORMATION);
 }
 
 void CRootFrame::OnQuit(wxCommandEvent &e)
 {
 	Close(true);
+}
+
+void CRootFrame::OnBrushCircle(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.brush = Tools::BR_CIRCLE;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+	editor->GetMap()->UpdateShaderTool(t);
+}
+void CRootFrame::OnBrushRect(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.brush = Tools::BR_RECT;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+	editor->GetMap()->UpdateShaderTool(t);
+}
+void CRootFrame::OnToolLower(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.tool = Tools::TOOL_LOWER;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+void CRootFrame::OnToolRaise(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.tool = Tools::TOOL_RAISE;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+void CRootFrame::OnToolLevel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	// t.tool = Tools::TOOL_LEVEL;
+	t.level = !t.level;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnToolSelect(wxCommandEvent &e)
+{
+/*	Tools::CTool t = editor->GetTool();
+	t.select = !t.select;
+	editor->SetTool(t);
+*/
+}
+
+void CRootFrame::OnToolSmooth(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.tool = Tools::TOOL_SMOOTH;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+void CRootFrame::OnToolClearback(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.tool = Tools::TOOL_CLEARBACK;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+void CRootFrame::OnSpinBrushSize(wxSpinEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.brush_size = e.GetPosition();
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+	editor->GetMap()->UpdateShaderTool(t);
+}
+void CRootFrame::OnSpinToolStrength(wxSpinEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.strength = e.GetPosition() / 20.0;
+	t.use_model = false;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
 }
 
 void CRootFrame::OnViewSolid(wxCommandEvent &e)
@@ -291,14 +411,159 @@ void CRootFrame::OnViewWireframe(wxCommandEvent &e)
 {
 	editor->SetRenderState(GL_LINES);
 }
+void CRootFrame::OnViewTexture(wxCommandEvent &e) 
+{
+	editor->GetMap()->UpdateShader(0, e.IsChecked());
+}
+void CRootFrame::OnViewLight(wxCommandEvent &e)
+{
+	editor->GetMap()->UpdateShader(1, e.IsChecked());
+}
 
 void CRootFrame::OnEditorRepaint(wxCommandEvent &e)
 {
 	m_glcanvas->Refresh(false);
+	m_world_hm_panel->SetImg(editor->GetWorldHeightMap());
 	m_world_hm_panel->Refresh(false);
+	m_world_tex_panel->SetImg(editor->GetWorldTexture());
 	m_world_tex_panel->Refresh(false);
+	
+	m_preload_hm_panel->Refresh(false);
+	m_preload_tex_panel->Refresh(false);
 }
 
+void CRootFrame::OnPreloadReady(wxCommandEvent &e)
+{
+	std::vector<wxImage *> *data = reinterpret_cast<std::vector<wxImage *> *>(e.GetClientData());
+	m_preload_hm_panel->SetImg(data->at(0));
+	m_preload_hm_panel->Refresh(false);
+	m_preload_tex_panel->SetImg(data->at(1));
+	m_preload_tex_panel->Refresh(false);
+	delete data;
+}
+
+void CRootFrame::OnUseModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.use_model = true;
+	t.move = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnMoveModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.move = true;
+        t.use_model = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnRotateModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.move = false;
+        t.use_model = false;
+        t.rotate = true;
+        t.scale = false;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnScaleModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.move = false;
+        t.use_model = false;
+        t.rotate = false;
+        t.scale = true;
+        t.del = false;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnDeleteModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.move = false;
+        t.use_model = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = true;
+        t.clone = false;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnCloneModel(wxCommandEvent &e)
+{
+	Tools::CTool t = editor->GetTool();
+	t.move = false;
+        t.use_model = false;
+        t.rotate = false;
+        t.scale = false;
+        t.del = false;
+        t.clone = true;
+	editor->SetTool(t);
+}
+
+void CRootFrame::OnChooseModel(wxCommandEvent &e)
+{
+	wxFileDialog *dlg = new wxFileDialog(this, _T("Model path"), _T(""), _T(""), _T("*.*"));
+
+	if (dlg->ShowModal() == wxID_OK)
+	{
+		// wxString fname = dlg->GetFilename();
+		wxString path = dlg->GetPath();
+		m_tctrl_model_path->SetValue(path);
+
+		//wxString path = m_tctrl_model_path->GetValue();
+
+		CMap *m_map = editor->GetMap();
+		std::map<std::string, Cmodel *> *loaded_models = &m_map->GetLoadedModels();
+		std::map<std::string, Cmodel *>::iterator iter;
+
+		std::string search_string(path.ToAscii()); 
+		iter = loaded_models->find(search_string);              
+
+		if (iter != loaded_models->end()) {
+			editor->SetChoosedModel(iter->second);
+			wxLogVerbose(_T("Model reused"));
+		}
+		else {
+			Cmodel *model = new Cmodel();
+			bool succeed = model->loadModel(search_string);
+			wxString m;
+			if (!succeed) {
+				m = _T("Model '") + path + _T("' has not been loaded");
+				wxLogError(m);
+			}
+			else {
+				m = _T("New model loaded: ") + path;
+				wxLogVerbose(m);
+				loaded_models->insert(std::pair<std::string, Cmodel *>(search_string, model));
+				wxLogVerbose(_T("Models count: %d"), loaded_models->size());
+				editor->SetChoosedModel(model);
+			}
+		} 
+		// nastavit tool
+		Tools::CTool t = editor->GetTool();
+		t.use_model = true;
+		t.move = false;
+		t.rotate = false;
+		t.scale = false;
+		t.del = false;
+		t.clone = false;
+		editor->SetTool(t);
+	}
+}
 
 /*
  * CEditorApp
@@ -313,8 +578,10 @@ bool CEditorApp::OnInit()
 	logger->SetVerbose(true);
 #endif
 	
-	// todle se provede jen jednou tady? vzhledem k tomu ze pointer je
-	// globalni..
+	//// frame
+	CRootFrame *frame = new CRootFrame;
+	
+	// inicializace GLOBALNIHO SINGLETONU
 	editor = Editor::CEditor::GetInstance();
 	try {
 		editor->Init();
@@ -324,128 +591,143 @@ bool CEditorApp::OnInit()
 		e.show();
 		throw;
 	}
-	
-
-	//// frame
-	CRootFrame *frame = new CRootFrame;
 
 	// menu
 	wxMenuBar *menu_bar = new wxMenuBar;
 	wxMenu *menu_file = new wxMenu;
 	wxMenu *menu_view = new wxMenu;
-	wxMenu *menu_window = new wxMenu;
 
 	// menu file 
-	menu_file->Append(ID_MF_New, _T("New"));
+	// menu_file->Append(ID_MF_New, _T("New"));
 	menu_file->Append(ID_MF_Save, _T("Save"));
-	menu_file->Append(ID_MF_Load, _T("Load"));
+	// menu_file->Append(ID_MF_Load, _T("Load"));
 	menu_file->AppendSeparator();
 	menu_file->Append(ID_MF_Quit, _T("E&xit"));
-
+	
 	// menu view
 	menu_view->Append(ID_MV_Solid, _T("Solid"));
 	menu_view->Append(ID_MV_Wireframe, _T("Wireframe"));
-    /*
-	 * menu_view->Append(ID_M_, _T(""));
-	 * menu_view->Append(ID_M_, _T(""));
-	 * menu_view->Append(ID_M_, _T(""));
-	 * menu_view->Append(ID_M_, _T(""));
-     */
+	menu_view->AppendCheckItem(ID_MV_Texture, _T("Texture"));
+	menu_view->Check(ID_MV_Texture, true);
+	menu_view->AppendCheckItem(ID_MV_Light, _T("Light"));
+	menu_view->Check(ID_MV_Light, true);
 	
-	// menu window
-	menu_window->AppendCheckItem(wxID_ANY + 99, _T("Show Toolbox"));
-	menu_window->Check(wxID_ANY+99, true);
-
-
 	// menubar
 	menu_bar->Append(menu_file, _T("&File"));
-	// menu_bar->Append(menu_edit, _T("&Edit"));
 	menu_bar->Append(menu_view, _T("&View"));
-	menu_bar->Append(menu_window, _T("&Window"));
-	// menu_bar->Append(menu_help, _T("&Help"));
 	frame->SetMenuBar(menu_bar);
-	
-	// status bar
-	frame->CreateStatusBar(2);
-	int hm_w = editor->GetMap()->GetHeightMap()->GetWidth();
-	int hm_h = editor->GetMap()->GetHeightMap()->GetHeight();
-	wxString hm_text = editor->GetMap()->GetHeightMapName();
-	hm_text << _T(": ") << hm_w << _T(" x ") << hm_h;
-	frame->SetStatusText(hm_text, 0);
-	hm_text = editor->GetMap()->GetTextureName();
-	hm_w = editor->GetMap()->GetTexture()->GetWidth();
-	hm_h = editor->GetMap()->GetTexture()->GetHeight();
-	hm_text << _T(": ") << hm_w << _T(" x ") << hm_h;
-	frame->SetStatusText(hm_text, 1);
 
 	// canvas
 	int al[] = {WX_GL_RGBA, WX_GL_DOUBLEBUFFER};
 	CCanvas *canvas = new CCanvas(frame, al);
 	frame->SetCanvas(canvas);
 
-	// sizer hierarchy
+	// sizerova hierarchie
 	wxBoxSizer *top_sizer = new wxBoxSizer(wxHORIZONTAL);
-	wxBoxSizer *toolpanel_top_sizer = new wxBoxSizer(wxVERTICAL);
-	
-	// sizer pro vykreslovani nactenyho sveta
-	wxBoxSizer *world_sizer = new wxBoxSizer(wxVERTICAL);
+	wxBoxSizer *minimap_sizer = new wxBoxSizer(wxVERTICAL);
+	wxGridSizer *worlds_sizer = new wxGridSizer(2,2,0,0);
 
-
-    /*
-	 * wxStaticBox *heightmap_sbox = new wxStaticBox(frame, -1, _T("Heightmap"));
-	 * wxStaticBoxSizer *toolpanel_heightmap_sizer = new wxStaticBoxSizer(heightmap_sbox, wxVERTICAL);
-	 * 
-	 * wxStaticBox *texture_sbox = new wxStaticBox(frame, -1, _T("Texture"));
-	 * wxStaticBoxSizer *toolpanel_texture_sizer = new wxStaticBoxSizer(texture_sbox, wxVERTICAL);
-     */
-	
-	// wxButton *b1 = new wxButton(frame, wxID_OK, _T("test1"));
-
-	 
 	// bocni panel se svetem
 	wxRect r = editor->GetWorldView(); 
-	CPanel *tmp = new CPanel(frame);
+	CPanel *tmp = new CPanel(frame, true);
 	tmp->SetImg(editor->GetWorldHeightMap());
-	world_sizer->Add(tmp, 1, wxEXPAND); 
+	worlds_sizer->Add(tmp, 0); 
 	frame->SetHmPanel(tmp);
 	
-	tmp = new CPanel(frame);
+	tmp = new CPanel(frame, false);
 	tmp->SetImg(editor->GetWorldTexture());
 	tmp->SetTex(true);
-	world_sizer->Add(tmp, 1, wxEXPAND); 
+	worlds_sizer->Add(tmp, 0); 
 	frame->SetTexPanel(tmp);
 	
+	// preload
+	tmp = new CPanel(frame, false);
+	tmp->SetImg(0);
+	worlds_sizer->Add(tmp, 0); 
+	frame->SetPreloadHMPanel(tmp);
+	tmp = new CPanel(frame, false);
+	tmp->SetImg(0);
+	worlds_sizer->Add(tmp, 0); 
+	frame->SetPreloadTexPanel(tmp);
+	
+	minimap_sizer->Add(worlds_sizer, 7, wxEXPAND );
+	
+	//// notebook
+	wxNotebook *m_notebook = new wxNotebook(frame, wxID_ANY);
+	wxPanel *page_toolbox = new wxPanel(m_notebook, wxID_ANY);
+	wxPanel *page_models = new wxPanel(m_notebook, wxID_ANY);
+	
+	m_notebook->AddPage(page_toolbox, _T("Toolbox"));
+	m_notebook->AddPage(page_models, _T("Models"));
+	
+	wxFlexGridSizer *toolbox_sizer = new wxFlexGridSizer(6, 2, 0, 0);
+	toolbox_sizer->SetFlexibleDirection(wxHORIZONTAL);
+	toolbox_sizer->AddGrowableCol(0, 0);
+	toolbox_sizer->AddGrowableCol(1, 0);
+	wxGridBagSizer *models_sizer = new wxGridBagSizer();
+	
+	// butonky s nastojema
+	wxButton *btn_brush_circle = new wxButton(page_toolbox, ID_Brush_Circle, _T("brush:circle"));
+	wxButton *btn_brush_rect = new wxButton(page_toolbox, ID_Brush_Rect, _T("brush:rect"));
+	wxButton *btn_tool_lower = new wxButton(page_toolbox, ID_Tool_Lower, _T("tool:lower"));
+	wxButton *btn_tool_raise = new wxButton(page_toolbox, ID_Tool_Raise, _T("tool:raise"));
+	wxToggleButton *btn_level = new wxToggleButton(page_toolbox, ID_Tool_Level, _T("tool:level"));
+	btn_level->SetValue(false);
+        wxButton *btn_tool_smooth = new wxButton(page_toolbox, ID_Tool_Smooth, _T("tool:smooth"));
+	wxButton *btn_tool_clearback = new wxButton(page_toolbox, ID_Tool_Clearback, _T("tool:clear"));
+	
+	wxSpinCtrl *spin_brush_size = new wxSpinCtrl(page_toolbox, ID_Spin_Brush_Size);
+	spin_brush_size->SetValue(3);
+	spin_brush_size->SetRange(1, 20);
+	
+	wxSpinCtrl *spin_tool_strength = new wxSpinCtrl(page_toolbox, ID_Spin_Tool_Strength);
+	spin_tool_strength->SetValue(2);
+	spin_tool_strength->SetRange(1, 100);
+	
+	// ovladani modelu
+	frame->m_tctrl_model_path = new wxTextCtrl(page_models, wxID_ANY, _T("path.."));
+	wxButton *btn_choose = new wxButton(page_models, ID_Choose_Model, _T("choose model.."));
+	wxButton *btn_use = new wxButton(page_models, ID_Use_Model, _T("Place model"));
+	wxButton *btn_move = new wxButton(page_models, ID_Move_Model, _T("Move model"));
+	wxButton *btn_rotate = new wxButton(page_models, ID_Rotate_Model, _T("Rotate model"));
+	wxButton *btn_scale = new wxButton(page_models, ID_Scale_Model, _T("Scale model"));
+	wxButton *btn_delete = new wxButton(page_models, ID_Delete_Model, _T("Delete model"));
+	wxButton *btn_clone = new wxButton(page_models, ID_Clone_Model, _T("Clone model"));
+	
+	// naplnit toolbox
+	toolbox_sizer->Add(btn_brush_circle, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_brush_rect, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_tool_lower, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_tool_raise, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_level, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_tool_smooth, 1, wxEXPAND);
+	toolbox_sizer->Add(btn_tool_clearback, 1, wxEXPAND);
+	// vypln, aby byl sudy pocet prvku a bylo zarovnano
+	toolbox_sizer->Add(new wxStaticText(page_toolbox, -1, _T("")), 1);
+	
+	// naplnit toolbox
+	toolbox_sizer->Add(new wxStaticText(page_toolbox, -1, _T("Brush size: ")), 1);
+	toolbox_sizer->Add(spin_brush_size, 1, wxEXPAND);
+	toolbox_sizer->Add(new wxStaticText(page_toolbox, -1, _T("Brush strength: ")), 1);
+	toolbox_sizer->Add(spin_tool_strength, 1, wxEXPAND);
+	
+	// naplnit modely
+	models_sizer->Add(frame->m_tctrl_model_path, wxGBPosition(0,0), wxGBSpan(1, 2), wxEXPAND);
+	models_sizer->Add(btn_choose, wxGBPosition(1,0), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_use, wxGBPosition(1,1), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_move, wxGBPosition(2,0), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_rotate, wxGBPosition(2,1), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_scale, wxGBPosition(3,0), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_delete, wxGBPosition(3,1), wxGBSpan(1,1), wxEXPAND);
+	models_sizer->Add(btn_clone, wxGBPosition(4,0), wxGBSpan(1,1), wxEXPAND);
+	
+	page_toolbox->SetSizer(toolbox_sizer);
+	page_models->SetSizer(models_sizer);
+	minimap_sizer->Add(m_notebook, 15, wxALL | wxEXPAND);
+	
 	// naplnit hlavni sizer
-	top_sizer->Add(toolpanel_top_sizer); 
 	top_sizer->Add(canvas, 3, wxALL | wxEXPAND); 
-	top_sizer->Add(world_sizer, 1, wxALL | wxEXPAND ); 
-
-    /*
-	 * toolpanel_top_sizer->Add(toolpanel_heightmap_sizer, 1, wxALL | wxEXPAND);
-	 * toolpanel_top_sizer->Add(toolpanel_texture_sizer, 1, wxALL | wxEXPAND);
-     */
-	// toolpanel_top_sizer->Add(b1, wxALL | wxEXPAND);
-	// toolpanel_top_sizer->Add(b2, wxALL | wxEXPAND);
-	// 
-    /*
-	 * toolpanel_heightmap_sizer->Add(b1, 1, wxALL|wxEXPAND);
-	 * toolpanel_heightmap_sizer->Add(b2, 1, wxALL|wxEXPAND);
-	 * toolpanel_texture_sizer->Add(b3, 1, wxALL|wxEXPAND);
-	 * toolpanel_texture_sizer->Add(b4, 1, wxALL|wxEXPAND);
-     */
-	
-	// toolpanel_heightmap_sizer->Add(b3, 1, wxALL|wxEXPAND);
-	// toolpanel_heightmap_sizer->Add(frame->m_bmpbut_heightmap, 1, wxALL|wxEXPAND);
-	// toolpanel_heightmap_sizer->Add(b1, 1, wxALL|wxEXPAND);
-	// toolpanel_heightmap_sizer->Add(b2, 1, wxALL|wxEXPAND);
-	// toolpanel_heightmap_sizer->Add(b3, 1, wxALL|wxEXPAND);
-	// toolpanel_heightmap_sizer->Add(bmpb2, 1, wxALL|wxEXPAND);
-	
-	//// FRAME TOOLBOX
-    /*
-	 * wxFrame *frame_toolbox = new CToolboxFrame(frame);
-	 * frame_toolbox->Show(TRUE);
-     */
+	top_sizer->Add(minimap_sizer, 1, wxALL | wxEXPAND ); 
 	
 	SetTopWindow(frame);
 	frame->SetSizer(top_sizer);
@@ -461,70 +743,3 @@ int CEditorApp::OnExit()
 	
 	return GL_TRUE;
 }
-
-
-/*
- * CToolboxFrame
- * okno panelu nastroju
- */
-CToolboxFrame::CToolboxFrame(wxWindow *parent)
-	:wxFrame(parent, -1, TOOLBOX_NAME, TOOLBOX_POSITION, TOOLBOX_SIZE),
-	m_notebook(new wxNotebook(this, wxID_ANY))
-{
-	wxPanel *page_toolbox = new wxPanel(m_notebook, wxID_ANY);
-	wxPanel *page_maps = new wxPanel(m_notebook, wxID_ANY);
-	wxPanel *page_layers = new wxPanel(m_notebook, wxID_ANY);
-	m_notebook->AddPage(page_toolbox, _T("Toolbox"));
-	m_notebook->AddPage(page_maps, _T("Maps"));
-	m_notebook->AddPage(page_layers, _T("Layers"));
-	
-	wxPanel *p = page_toolbox;
-    /*
-	 * wxButton *b1 = new wxButton(p, wxID_ANY, _T("test1"));
-	 * wxButton *b2 = new wxButton(p, wxID_ANY, _T("test2"));
-     */
-	wxPanel *panel_heightmap = new wxPanel(p, wxID_ANY);
-	wxPanel *panel_texture = new wxPanel(p, wxID_ANY);
-	wxPanel *p3 = new wxPanel(p, wxID_ANY);
-	wxPanel *p4 = new wxPanel(p, wxID_ANY);
-	// wxCheckBox *cb_heightmap = new wxCheckBox(p, wxID_ANY, _T(""));
-	// wxCheckBox *cb_texture = new wxCheckBox(p, wxID_ANY, _T(""));
-	// wxCheckBox *cb3 = new wxCheckBox(p, wxID_ANY, _T(""));
-	// wxCheckBox *cb4 = new wxCheckBox(p, wxID_ANY, _T(""));
-	
-	panel_heightmap->SetMinSize(wxSize(200, 200));
-	panel_texture->SetMinSize(wxSize(200, 200));
-	p3->SetMinSize(wxSize(200, 200));
-	p4->SetMinSize(wxSize(200, 200));
-			
-	//// toolbox
-	//
-	//
-	//// maps
-    /*
-	 * wxFlexGridSizer *flex = new wxFlexGridSizer(2, 4, 1, 1);
-	 * flex->Add(cb_heightmap, 1, wxEXPAND);
-	 * flex->Add(panel_heightmap, 1, wxEXPAND);
-	 * flex->Add(cb_texture, 1, wxEXPAND);
-	 * flex->Add(panel_texture, 1, wxEXPAND);
-	 * flex->Add(cb3, 1, wxEXPAND);
-	 * flex->Add(p3, 1, wxEXPAND);
-	 * flex->Add(cb4, 1, wxEXPAND);
-	 * flex->Add(p4, 1, wxEXPAND);
-	 * flex->AddGrowableCol(1);
-	 * flex->AddGrowableCol(3);
-	 * 
-	 * flex->Layout();
-	 * page_toolbox->SetSizerAndFit(flex);
-	 * 
-	 * wxSize s = flex->GetSize();
-	 * s = s + wxSize(0, 30);
-	 * SetMinSize(s);
-	 * SetSize(s);
-     */
-
-	//// layers
-	//
-	//
-}
-

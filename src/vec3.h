@@ -46,16 +46,15 @@ public:
     double Dot(const Vec3 &v1, const Vec3 &v2)
     { return v1.x*v2.x + v1.y*v2.y + v1.z*v2.z; }
 
-    Vec3 Cross(const Vec3 &a, const Vec3 &b)
-    { return Vec3 (a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x); }
+    Vec3 Cross(const Vec3 &a/* , const Vec3 &b */)
+    { return Vec3 (y*a.z - z*a.y, z*a.x - x*a.z, x*a.y - y*a.x); }
+    // { return Vec3 (a.y*b.z - a.z*b.y, a.z*b.x - a.x*b.z, a.x*b.y - a.y*b.x); }
 
-    /*
-     * std::ostream &operator<< (std::ostream &os, const Vec3 &v)
-     * {
-	 *     os << v.x << ", " << v.y << ", " << v.z << std::endl;
-	 *     return os;
-     * }
-     */
+	friend std::ostream &operator<< (std::ostream &os, const Vec3 &v)
+	{
+		os << v.x << ", " << v.y << ", " << v.z;
+		return os;
+	}
 };
 
 #endif

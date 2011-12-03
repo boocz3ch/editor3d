@@ -5,6 +5,7 @@
 
 #include "globals.h"
 #include "exception.h"
+#include "model.h"
 
 namespace Editor {
 
@@ -12,24 +13,31 @@ CEditor *CEditor::m_inst = 0;
 
 void CEditor::InitCamera()
 {
-	m_camera.Set(Vec3(51, 56, 51), -1.9, -0.9);
+	m_camera.Set(Vec3(81, 186, 181), -1.8, -0.9);
 }
 
 CEditor::CEditor():
-	m_map(0), m_render_state(GL_TRIANGLES),
+	m_map(0), m_tilegrid(0), m_render_state(GL_TRIANGLES),
 	m_clickpointer(Vec3(0, 0, 0)),
-	// m_camera(Vec3(51,56,51), Vec3(10,0,10), Vec3(0,1,0)),
 	m_viewport_size(wxSize(0, 0)),
-	m_sync(true)
+	m_sync(true),
+	m_datapath_root(DEFAULT_DATA_ROOT),
+	m_tool(Tools::BR_CIRCLE, Tools::TOOL_LOWER, 3),
+        picked_point_x(0), picked_point_y(0), picking_enabled(false),
+        left_mouse_down(false), mouse_dragging(false), mx(0), my(0),
+		picked_name(-1) 
 {
 	InitCamera();
+}
+CEditor::~CEditor()
+{
 }
 
 void CEditor::LoadWorldMap()
 {
-	wxString root = _T("../data/");
-	wxString terTilesStr = _T("terrain_tiles/");
-	wxString texTilesStr = _T("texture_tiles/");
+	wxString root = m_datapath_root;
+	wxString terTilesStr = DEFAULT_TER_TILES_PATH;
+	wxString texTilesStr = DEFAULT_TEX_TILES_PATH;
 	
 	wxString terRoot = root + terTilesStr;
 	wxDir dir(terRoot);
@@ -39,19 +47,10 @@ void CEditor::LoadWorldMap()
 	// log
 	wxLogVerbose(_T("Opened ") + dir.GetName());
 	
-    /*
-	 * bool cont = dir.GetFirst(&fname);
-	 * while (cont) {
-	 *     // DEBUG
-	 *     std::cout << fname.ToAscii() << std::endl;
-	 *     cont = dir.GetNext(&fname);
-	 * }
-     */
-	
-	
-	wxString fname, tmp, val;
+	wxString fname, fname_map, tex_path, tmp, val;
 	long to_long;
 	int x, y;
+	TileInfo ins;
 	
 	wxArrayString all_files;
 	wxDir::GetAllFiles(dir.GetName(), &all_files);
@@ -61,150 +60,91 @@ void CEditor::LoadWorldMap()
 	
 	for (unsigned int i=0; i<all_files.GetCount(); ++i) {
 		fname = all_files[i];
-		// DEBUG
-		// std::cout << fname.ToAscii() << std::endl;
+		fname_map = fname;
 		
 		tmp = fname.Remove(0, terRoot.Length());
-		// DEBUG
-		// std::cout << tmp.ToAscii() << std::endl;
 		
-		// TODO: neprenositelnej kod!
+		// neprenositelny kod!
 		val = tmp.Mid(0, tmp.Find('/'));
-		// DEBUG
-		// std::cout << "x1:" << val.ToAscii() << std::endl;
 		val.ToLong(&to_long);
 		x = to_long * 1024;
 		tmp = tmp.Remove(0, val.Length()+1);
 		
 		val = tmp.Mid(0, tmp.Find('/'));
-		// DEBUG
-		// std::cout << "x2:" << val.ToAscii() << std::endl;
 		val.ToLong(&to_long);
 		x += to_long;
-		// DEBUG
-		// std::cout << "x:" << x << " " [> <<std::endl <];
 		
 		tmp = tmp.Remove(0, val.Length()+1);
 		val = tmp.Mid(0, tmp.Find('/'));
-		// DEBUG
-		// std::cout << "y1: " << val.ToAscii() << std::endl;
 		val.ToLong(&to_long);
 		y = to_long * 1024;
 		
 		tmp = tmp.Remove(0, val.Length()+1);
 		val = tmp.Mid(0, tmp.Find('.'));
-		// DEBUG
-		// std::cout << "y2:" << val.ToAscii() << std::endl;
 		val.ToLong(&to_long);
 		y += to_long;
-		// std::cout << "y:" << y << std::endl;
 		
-		m_world_map.insert( std::pair<wxPoint, wxString>(wxPoint(x, y), all_files[i]) );
+		// cesta k texture
+		tex_path = fname_map;
+		tex_path.Replace(HEIGHTMAP_SUFFIX, TEXTURE_SUFFIX);
+		tex_path.Replace(_T("terrain_tiles"), _T("texture_tiles"));
+		
+		ins.coord = wxPoint(x, y);
+		ins.hm_path = fname_map;
+		ins.tex_path = tex_path;
+		m_world_map.insert( pair_t(ins.coord, ins) );
 	}
-	
-	// DEBUG
-    /*
-	 * std::multimap<wxPoint,wxString,PointCompare>::iterator it;
-	 * it = m_world_map.begin();
-	 * for (; it != m_world_map.end(); it++) {
-	 *     std::std::cout << it->second.ToAscii() << std::std::endl;
-	 * }
-     */
 }
 
-void CEditor::CreateMapFromView()
+void CEditor::CreateMapFromView(bool shift)
 {
 	// log
 	wxLogVerbose(_T("CEditor::CreateMapFromView: Creating.."));
-	m_map->CreateFromView(m_tilegrid);
+	m_map->CreateFromView(m_tilegrid, shift);
 }
-	
 
 void CEditor::Init()
 {
 	// init image handlers
 	wxInitAllImageHandlers();
-	
+	// nacist info o svete
 	LoadWorldMap();
 	
-	// TODO prozatim napevno nacitat 4 policka
-	std::vector<TileInfo> maps;
-	TileInfo ref;
+	multimap_t maps;
 	
-	std::multimap<wxPoint, wxString, PointCompare>::iterator it;
+	// referencni policko, prvni nactene v datasetu
+	TileInfo ref;
+	// interni reprezentace souradnic, zacina [0,0]
+	// odpovida offsetu od zacatku souradnic datasetu
+	wxPoint internal_coord;
+	// velikost pozadovane plochy
+	wxSize load_size(2, 2);
+	
+	multimap_t::iterator it;
 	it = m_world_map.begin();
 	if (it == m_world_map.end())
 		throw CException("CEditor::Init(): No maps found");
-	ref = TileInfo(it->first, it->second);
-	maps.push_back(ref);
+	ref = it->second;
+	// internal_coord = wxPoint(0, 0);
+	// maps.insert( pair_t(internal_coord, ref) );
 	
-	// DEBUG
-	// std::std::cout << ref.coord.x+1 << std::std::endl;
-
-	it = m_world_map.find(wxPoint(ref.coord.x+1, ref.coord.y));
-	// TODO dopsat zbytek vyjimek
-	if (it == m_world_map.end())
-		throw CException("CEditor::Init(): Could not find x+1 map");
-	maps.push_back(TileInfo(it->first, it->second));
+	for (int y=0; y<load_size.GetHeight(); ++y) {
+		for (int x=0; x<load_size.GetWidth(); ++x) {
+			it = m_world_map.find(wxPoint(ref.coord.x + x, ref.coord.y + y));
+			internal_coord = wxPoint(x, y);
+			if (it == m_world_map.end())
+				throw CException("CEditor::Init(): Could not find map");
+			maps.insert( pair_t(internal_coord, it->second) );
+		}
+	}
 	
-    /*
-	 * it = m_world_map.find(wxPoint(ref.coord.x+2, ref.coord.y));
-	 * // TODO dopsat zbytek vyjimek
-	 * if (it == m_world_map.end())
-	 *     throw CException("CEditor::Init(): Could not find x+2 map");
-	 * maps.push_back(TileInfo(it->first, it->second));
-     */
-	
-	it = m_world_map.find(wxPoint(ref.coord.x, ref.coord.y+1));
-	if (it == m_world_map.end())
-		throw CException("CEditor::Init(): Could not find y+1 map");
-	maps.push_back(TileInfo(it->first, it->second));
-	
-	it = m_world_map.find(wxPoint(ref.coord.x+1, ref.coord.y+1));
-	if (it == m_world_map.end())
-		throw;
-	maps.push_back(TileInfo(it->first, it->second));
-	
-    /*
-	 * it = m_world_map.find(wxPoint(ref.coord.x+2, ref.coord.y+1));
-	 * if (it == m_world_map.end())
-	 *     throw;
-	 * maps.push_back(TileInfo(it->first, it->second));
-     */
-	
-
-
-    /*
-	 * it = m_world_map.find(wxPoint(ref.coord.x, ref.coord.y+2));
-	 * if (it == m_world_map.end())
-	 *     throw CException("CEditor::Init(): Could not find y+1 map");
-	 * maps.push_back(TileInfo(it->first, it->second));
-	 * 
-	 * it = m_world_map.find(wxPoint(ref.coord.x+1, ref.coord.y+2));
-	 * if (it == m_world_map.end())
-	 *     throw;
-	 * maps.push_back(TileInfo(it->first, it->second));
-	 * 
-	 * it = m_world_map.find(wxPoint(ref.coord.x+2, ref.coord.y+2));
-	 * if (it == m_world_map.end())
-	 *     throw;
-	 * maps.push_back(TileInfo(it->first, it->second));
-     */
-
-
-	// FIXME ?? 3x2 spatne vykresluje texturu.. protoze neni ctvercova?
-	m_tilegrid = new CTileGrid(maps, wxSize(2, 2));
-	// throw CException("CEditor::Init(): stopper throw");
+	m_tilegrid = new CTileGrid(&m_world_map, maps, load_size, ref.coord);
+	m_tilegrid->CreateWorldImage();
 	
 	m_map = new CMap();
-	// m_map->Load(m_tilegrid);
-	// throw CException("CEditor::Init(): stopper throw");
-	// m_map->Load(_T("../data/676.png"), _T("../data/676.jpg"));
 	
 	CreateMapFromView();
 	SetSync();
-	
-	// throw;
 }
 
 void CEditor::InitGL(int w, int h)
@@ -227,7 +167,7 @@ void CEditor::InitGL(int w, int h)
 	m_viewport_size = wxSize(w, h);
 	
 	// init shaders
-	m_map->InitShaders();
+	m_map->InitShaders(m_tool);
 }
 
 void CEditor::MoveCameraFocus(float x, float y, float z)
@@ -272,9 +212,6 @@ Vec3 CEditor::Pick(int mx, int my)
 	glGetIntegerv(GL_VIEWPORT, viewport);
 	glGetDoublev(GL_MODELVIEW_MATRIX, modelview);
 	glGetDoublev(GL_PROJECTION_MATRIX, projection);
-
-	// DEBUG
-	// std::std::cout << mx << "," << my << std::std::endl;
 	
 	fmx = mx;
 	// obratit y kvuli opengl
@@ -285,40 +222,22 @@ Vec3 CEditor::Pick(int mx, int my)
 			modelview, projection, viewport,
 			&posx, &posy, &posz);
 	
-	m_clickpointer = Vec3(posx, posy, posz);
-	return m_clickpointer;
+	return Vec3(posx, posy, posz);
 }
 
 void CEditor::ProcessPicked(Vec3 &vpicked)
 {
-	Vec3 hm_coord = vpicked * m_map->GetNormalize();
-	int sizex = m_map->GetWidth();
-	int sizey = m_map->GetHeight();
-
-	// DEBUG
-	// std::cout << "souradnice v hmape: " << hm_coord.x << "," << hm_coord.z << std::endl;
-	
-	int hmx = static_cast<int>(hm_coord.x); 
-	int hmy = static_cast<int>(hm_coord.z); 
-	
-	// TODO tohle prepsat
-	// vertexy
-	glBindBuffer(GL_ARRAY_BUFFER, m_map->GetVertexArrayID());
-	float *data = (float *)glMapBuffer(GL_ARRAY_BUFFER, GL_READ_WRITE);
-	const int rad = 40;
-	int ind;
-	for (int offx = -rad/2; offx <= rad/2; ++offx) {
-		for (int offy = -rad/2; offy <= rad/2; ++offy) {
-			if (hmx+offx < 0  || hmx+offx > sizex-1) continue;
-			if (hmy+offy < 0  || hmy+offy > sizey-1) continue;
-
-			float set = (rad-abs(offx))/10.0 * (rad-abs(offy))/10.0 / 4.0;
-			ind = (hmx+offx + (hmy+offy) * sizex) * 3 + 1;
-			data[ind] += set;
-			if (data[ind] * m_map->GetNormalize()*4 > 255.0) data[ind] = 255.0/(m_map->GetNormalize()*4);
-		}
+	if (m_tool.level) {
+		m_map->AdjustTerrain(vpicked, m_tool, m_tool.strength, m_clickpointer);
 	}
-	glUnmapBuffer(GL_ARRAY_BUFFER);
+	else if (m_tool.use_model || m_tool.move || m_tool.rotate ||
+			 m_tool.scale || m_tool.del || m_tool.clone)
+	{
+		m_map->SelectTerrain(vpicked, m_tool);
+	}
+	else {
+		m_map->AdjustTerrain(vpicked, m_tool, m_tool.strength);
+	}
 }
 
 void CEditor::SetHeightMap(const wxString &fname)
@@ -332,16 +251,96 @@ void CEditor::SetTexture(const wxString &fname)
 }
 void CEditor::SaveMap(const wxString &fname)
 {
-	m_map->Save(fname);
 }
-void CEditor::SaveWorld()
-{
-	m_tilegrid->Save();
+
+void 
+CEditor::Select(void) {
+
+ if (picking_enabled) {
+  GLuint buffer[512]; // pole pro ukladani picknutych hodnot
+ 
+  GLint viewport[4];
+  glGetIntegerv(GL_VIEWPORT, viewport);
+
+  glSelectBuffer(512, buffer);
+  glRenderMode(GL_SELECT);
+
+  glInitNames();
+  glPushName(0);
+
+  glMatrixMode(GL_PROJECTION);
+  glPushMatrix();
+    glLoadIdentity();
+  
+    gluPickMatrix(picked_point_x, (GLdouble) (viewport[3] - picked_point_y), 1.0f, 1.0f, viewport);
+
+    gluPerspective(DEFAULT_FOV_Y, (GLfloat) (viewport[2] - viewport[0]) / (GLfloat) (viewport[3] - viewport[1]), NEAR_PLANE, FAR_PLANE);
+
+    glMatrixMode(GL_MODELVIEW);
+
+    glUseProgram(0);
+        // TODO tmp
+	std::vector<s_model>::iterator it = m_map->GetModels().begin();
+	std::vector<s_model>::iterator ite = m_map->GetModels().end();
+
+	for (; it != ite; it++) {
+	  glPushMatrix();
+            
+	      GLfloat mod[4] = {1.0, 1.0, 1.0, 1.0};
+            if (picked_name == it->id_name) {
+		  // glColor3f(0.0, 1.0, 0.0);
+		  	mod[0] = 0.0;
+			mod[2] = 0.0;
+            }
+            else {
+		  // glColor3f(1.0, 1.0, 1.0);
+		  // mod = mod....
+            }
+	    glTranslatef(it->position.x, it->position.y, it->position.z);
+	    glRotatef(it->z_rotation, 0.0, 1.0, 0.0);
+            glScalef(it->scale, it->scale, it->scale);
+            glLoadName(it->id_name);
+		glEnable(GL_LIGHT0);
+	    glLightfv(GL_LIGHT0, GL_POSITION, LIGHT_POSITION);
+	    it->model->render(mod);
+		glDisable(GL_LIGHTING);
+		glDisable(GL_CULL_FACE);
+	  glPopMatrix();
+        }	
+	m_map->GetShader()->Use();
+
+  glMatrixMode(GL_PROJECTION);
+  glPopMatrix();
+
+  glMatrixMode(GL_MODELVIEW);
+
+  int hits = glRenderMode(GL_RENDER);
+
+  int choose = buffer[3];
+  int depth = buffer[1];
+
+  for (int loop = 1; loop < hits; loop++) {
+    if (buffer[loop*4 + 1] < GLuint(depth)) {
+      choose = buffer[loop * 4 + 3];
+      depth = buffer[loop * 4 + 1];
+    }
+  }
+
+    if (hits != 0) {
+      picked_name = choose; 
+    }
+    else {
+      picked_name = 0; 
+    }
+    picking_enabled = false;
+ }
 }
 
 void CEditor::Render()
 {
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+  
+        glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	
 	Vec3 pos = m_camera.GetPosition();
@@ -357,9 +356,67 @@ void CEditor::Render()
 		m_sync = false;
 	}
 	m_map->Render(m_render_state);
+ 
+	// solve mouse before rendering the objects
+	if (mouse_dragging && left_mouse_down) {
+		if (GetTool().level || GetTool().use_model ||
+				GetTool().move || GetTool().rotate || GetTool().scale ||
+				GetTool().del || GetTool().tool == Tools::TOOL_SMOOTH ||
+				GetTool().tool == Tools::TOOL_CLEARBACK)
+		{
+			Vec3 p = Pick(mx, my);
+			ProcessPicked(p);
+		}
+	}
+	else if (left_mouse_down && !mouse_dragging) {
+		Vec3 p = Pick(mx, my);
+		// SetClickPointer(p);
+		  ProcessPicked(p);
+        }
+        else if (GetTool().move && GetTool().clone) {
+         Tools::CTool t = GetTool();
+         t.move = false;
+         SetTool(t);
+        }
 
-	// glFlush();
-	// glDrawPixels(512, 512, GL_RGB, GL_UNSIGNED_BYTE, m_texture->GetData());
+        Vec3 p = Pick(mx, my);
+        UpdateShader(p);
+
+        std::vector<s_model> models = m_map->GetModels();
+       
+	std::vector<s_model>::iterator it = m_map->GetModels().begin();
+	std::vector<s_model>::iterator ite = m_map->GetModels().end();
+	glUseProgram(0);
+	glDisable(GL_TEXTURE_2D);
+
+        int name = 1;
+	for (; it != ite; it++) {
+	  glPushMatrix();
+            
+	      GLfloat mod[4] = {1.0, 1.0, 1.0, 1.0};
+            if (picked_name == it->id_name) {
+		  // glColor3f(0.0, 1.0, 0.0);
+		  	mod[0] = 0.0;
+			mod[2] = 0.0;
+            }
+            else {
+	      glColor3f(1.0, 1.0, 1.0);
+            }
+	    glTranslatef(it->position.x, it->position.y, it->position.z);
+	    glRotatef(it->z_rotation, 0.0, 1.0, 0.0);
+            glScalef(it->scale, it->scale, it->scale);
+            
+		glEnable(GL_LIGHT0);
+	    glLightfv(GL_LIGHT0, GL_POSITION, LIGHT_POSITION);
+	    it->model->render(mod);
+		glDisable(GL_LIGHTING);
+		glDisable(GL_CULL_FACE);
+	  glPopMatrix();
+          name++;
+	}
+	glEnable(GL_TEXTURE_2D);
+        
+	m_map->GetShader()->Use();
 }
 
 void CEditor::UpdateShader(const Vec3 &p)
@@ -367,20 +424,44 @@ void CEditor::UpdateShader(const Vec3 &p)
 	m_map->UpdateShader(p);
 }
 
+void CEditor::UpdatePickedPoint(int x, int y, bool _pick_enabled)
+{
+	picked_point_x = x;
+	picked_point_y = y;
+        if (!_pick_enabled) picked_name = 0;
+        picking_enabled = _pick_enabled;
+}
+
+void CEditor::SetChoosedModel(Cmodel *model) {
+  m_map->SetChoosedModel(model);
+}
+
+void CEditor::DeleteSelectedModel() {
+  if (picked_name > 0) {
+    std::vector<s_model> *m_models = &m_map->GetModels();
+    std::vector<s_model>::iterator iter = m_models->begin();
+    for (int i = 0; iter != m_models->end(); iter++, i++) {
+      if (i == (picked_name - 1)) {
+        m_models->erase(iter);
+        
+        // renumber all models
+        for (int j = 0; j != m_models->size(); j++) {
+          (*m_models)[j].id_name = j + 1;
+        }
+        break;
+      }
+    }
+    picked_name = 0;
+  }
+}
+
+
 void CEditor::CleanUp()
 {
-    /*
-	 * if (m_map)
-	 *     delete m_map;
-     */
-    /*
-	 * if (m_inst)
-	 *     delete m_inst;
-     */
-    /*
-	 * if (m_tilegrid)
-	 *     delete m_tilegrid;
-     */
+	if (m_map)
+		delete m_map;
+	if (m_inst)
+		delete m_inst;
 }
 
 } // namespace Editor

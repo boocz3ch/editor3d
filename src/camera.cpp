@@ -60,8 +60,9 @@ void CCamera::Rotate(float h, float v, float scale)
 void CCamera::Slide(float h, float v)
 {
 	m_position.x += h * cos(m_h_radians+PI/2.0);
-	m_position.y += v;
+	m_position.x += v * cos(m_h_radians+PI);
 	m_position.z += h * sin(m_h_radians+PI/2.0);
+	m_position.z += v * sin(m_h_radians+PI);
 	Rotate(0.0, 0.0);
 }
 

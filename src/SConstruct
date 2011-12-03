@@ -1,10 +1,22 @@
 env = Environment()
 env.ParseConfig('wx-config --cxxflags --libs --libs gl')
-# flags += std c++ 98, Wall, pedantic, -g?
-env.Program(target = '3ed', source = Glob('*.cpp'), LIBS = env['LIBS'] +
-['GL', 'GLEW'])
+env.Program(target = '3ed',
+            source = Glob('*.cpp'),
+            LIBS = env['LIBS'] +
+                   ['GL', 'GLEW', 'assimp'])
 
-
+# oblibene prepinace pro gcc 
 env.Append(CPPFLAGS = ['-std=c++98', '-Wall', '-g'])
+
+# pouziti assimpu
+env.Append(CPPFLAGS = ['-I/opt/assimp/include/assimp'],
+		   LIBPATH  = ['-L/opt/assimp/lib'])
+
+# moznost prilinkovani knihovny turbojpeg
+# je nutne take pripsat 'turbojpeg' do pole LIBS vyse
+# env.Append(CPPFLAGS = ['-I/opt/libjpeg-turbo/include'],
+		  # LIBPATH  = ['-L/opt/libjpeg-turbo/lib'])
+
+# debug mod, zapina hodne vypisu (povoluje wxLogVerbose)
 env.Append(CPPFLAGS = ['-DDEBUG'])
 
